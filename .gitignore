@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# Data (videos and session artifacts are large / personal -- don't commit)
+data/shots/*
+!data/shots/.gitkeep
+data/calibration/*
+!data/calibration/.gitkeep
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Env
+.env
+.env.local

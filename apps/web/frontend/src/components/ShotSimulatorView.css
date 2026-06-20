@@ -1,0 +1,20 @@
+.shot-simulator {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.shot-simulator__placeholder-banner {
+  background: rgba(139, 124, 224, 0.1);
+  border: 1px solid rgba(139, 124, 224, 0.35);
+  color: var(--color-violet);
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  font-size: 13px;
+}
+
+.shot-simulator__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}

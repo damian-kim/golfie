@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "golfie-physics"
+version = "0.1.0"
+description = "Ball flight physics engine for Golfie."
+requires-python = ">=3.10"
+dependencies = [
+    "golfie-core",
+    "numpy>=1.26",
+    "scipy>=1.12",
+]
+
+[tool.setuptools]
+package-dir = {"golfie_physics" = "."}
+packages = [
+    "golfie_physics",
+    "golfie_physics.models",
+    "golfie_physics.fitting",
+    "golfie_physics.integrators",
+    "golfie_physics.validation",
+]

@@ -1,0 +1,81 @@
+:root {
+  /* Color tokens -- dark indoor-bay / launch-monitor palette.
+     Grounded in the subject: turf green + the amber of a practice
+     range ball + the cool dark of an evening hitting bay. */
+  --color-bg: #0b1410;
+  --color-surface: #121c16;
+  --color-surface-raised: #182a20;
+  --color-border: #25382c;
+  --color-turf: #2e7d4f;
+  --color-turf-bright: #4cc273;
+  --color-amber: #e8a23a;
+  --color-danger: #e2574c;
+  --color-violet: #8b7ce0;
+  --color-ink: #edf2ee;
+  --color-muted: #7c8f84;
+  --color-muted-dim: #4f6157;
+
+  --font-display: "Manrope", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: radial-gradient(ellipse at top, #142019 0%, var(--color-bg) 55%);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+a {
+  color: var(--color-turf-bright);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  font-family: var(--font-display);
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+}
+
+::selection {
+  background: var(--color-turf);
+  color: var(--color-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-turf-bright);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

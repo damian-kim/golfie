@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "golfie-api"
+version = "0.1.0"
+description = "FastAPI backend for Golfie."
+requires-python = ">=3.10"
+dependencies = [
+    "golfie-core",
+    "golfie-cv",
+    "golfie-render",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
+]
+
+[tool.setuptools]
+package-dir = {"golfie_api" = "golfie_api"}
+packages = [
+    "golfie_api",
+    "golfie_api.routers",
+    "golfie_api.storage",
+]

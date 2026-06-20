@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "golfie-cv"
+version = "0.1.0"
+description = "Computer vision pipeline for Golfie: calibration, sync, detection, tracking, triangulation."
+requires-python = ">=3.10"
+dependencies = [
+    "golfie-core",
+    "opencv-python-headless>=4.9",
+    "numpy>=1.26",
+    "matplotlib>=3.5",
+]
+
+[tool.setuptools]
+package-dir = {"golfie_cv" = "."}
+packages = [
+    "golfie_cv",
+    "golfie_cv.calibration",
+    "golfie_cv.detection",
+    "golfie_cv.tracking",
+    "golfie_cv.triangulation",
+    "golfie_cv.sync",
+    "golfie_cv.video",
+    "golfie_cv.debug",
+]

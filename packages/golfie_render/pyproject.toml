@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "golfie-render"
+version = "0.1.0"
+description = "Serializes Golfie shot data into the Three.js frontend's payload format."
+requires-python = ">=3.10"
+dependencies = [
+    "golfie-core",
+]
+
+[tool.setuptools]
+package-dir = {"golfie_render" = "."}
+packages = [
+    "golfie_render",
+    "golfie_render.threejs",
+]

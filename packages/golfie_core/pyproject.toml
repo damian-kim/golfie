@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "golfie-core"
+version = "0.1.0"
+description = "Shared schemas, coordinate conventions, and constants for Golfie."
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.5",
+    "numpy>=1.26",
+]
+
+[tool.setuptools]
+package-dir = {"golfie_core" = "."}
+packages = [
+    "golfie_core",
+    "golfie_core.schemas",
+    "golfie_core.coordinates",
+    "golfie_core.config",
+    "golfie_core.metrics",
+]
