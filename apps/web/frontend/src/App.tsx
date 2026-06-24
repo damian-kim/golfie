@@ -5,6 +5,7 @@ import { ProcessingPage } from "./pages/ProcessingPage";
 import { ReviewPage } from "./pages/ReviewPage";
 import { SimulatorPage } from "./pages/SimulatorPage";
 import { DemoPage } from "./pages/DemoPage";
+import { CalibratePage } from "./pages/CalibratePage";
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
       <Routes>
         <Route path="/" element={<UploadPage />} />
         <Route path="/demo" element={<DemoPage />} />
+        <Route path="/calibrate" element={<CalibratePage />} />
         <Route path="/sessions/:sessionId/processing" element={<ProcessingPage />} />
         <Route path="/sessions/:sessionId/review" element={<ReviewPage />} />
         <Route path="/sessions/:sessionId/simulator" element={<SimulatorPage />} />

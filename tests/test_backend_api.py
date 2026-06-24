@@ -199,3 +199,79 @@ def test_full_session_lifecycle_with_real_pipeline(client, sample_clip, monkeypa
     assert len(traj_body["simulated_trajectory"]) > 0
     assert traj_body["club"] == "driver"
 
+
+def test_calibration_endpoints(client, tmp_path, monkeypatch):
+    from pathlib import Path
+    
+    # 1. Active calibration should initially return 404
+    resp = client.get("/calibration/active")
+    assert resp.status_code == 404
+
+    # 2. Mock intrinsic & stereo calibration to avoid real OpenCV computation on sample test video
+    from golfie_core.schemas import CameraIntrinsics, CalibrationResult, CoordinateSystem
+    
+    mock_intrinsics = CameraIntrinsics(
+        fx=1000.0, fy=1000.0, cx=500.0, cy=500.0,
+        distortion=[0.0, 0.0, 0.0, 0.0, 0.0],
+        image_width=640, image_height=480, reprojection_error_px=0.1
+    )
+    
+    mock_calibration = CalibrationResult(
+        coordinate_system=CoordinateSystem(
+            origin_in_rig_frame_m=[0.0, 0.0, 0.0],
+            target_direction_in_rig_frame=[1.0, 0.0, 0.0],
+            up_direction_in_rig_frame=[0.0, 0.0, 1.0],
+            alignment_method="manual",
+        ),
+        camera_a_intrinsics=mock_intrinsics.as_matrix(),
+        camera_b_intrinsics=mock_intrinsics.as_matrix(),
+        camera_a_extrinsics=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+        camera_b_extrinsics=[[1.0, 0.0, 0.0, -1.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+        reprojection_error_px=0.15,
+        confidence=0.92,
+        calibration_target="charuco",
+        is_valid=True
+    )
+
+    monkeypatch.setattr("golfie_api.routers.calibration.calibrate_intrinsics", lambda *args, **kwargs: mock_intrinsics)
+    monkeypatch.setattr("golfie_api.routers.calibration.calibrate_stereo", lambda *args, **kwargs: mock_calibration)
+
+    # Mock extract_synced_frames to return dummy paths
+    dummy_paths = [Path("dummy_a.png")]
+    monkeypatch.setattr("golfie_api.routers.calibration.extract_synced_frames", lambda *args, **kwargs: (dummy_paths, dummy_paths))
+
+    # Create dummy video files
+    dummy_clip = tmp_path / "dummy.mp4"
+    dummy_clip.write_text("dummy clip content")
+
+    # 3. Perform calibration upload
+    with open(dummy_clip, "rb") as f_a, open(dummy_clip, "rb") as f_b:
+        upload_resp = client.post(
+            "/calibration/upload",
+            files={
+                "file_a": ("a.mp4", f_a, "video/mp4"),
+                "file_b": ("b.mp4", f_b, "video/mp4"),
+            },
+            data={
+                "board_type": "charuco",
+                "grid_cols": "11",
+                "grid_rows": "8",
+                "square_size": "0.04",
+                "marker_size": "0.03"
+            }
+        )
+    assert upload_resp.status_code == 200
+    assert upload_resp.json()["reprojection_error_px"] == 0.15
+
+    # 4. Now active calibration should return 200
+    active_resp = client.get("/calibration/active")
+    assert active_resp.status_code == 200
+    assert active_resp.json()["reprojection_error_px"] == 0.15
+
+    # 5. Creating a new session should automatically attach active calibration
+    session_resp = client.post("/sessions", json={})
+    assert session_resp.status_code == 200
+    assert session_resp.json()["calibration"] is not None
+    assert session_resp.json()["calibration"]["reprojection_error_px"] == 0.15
+
+

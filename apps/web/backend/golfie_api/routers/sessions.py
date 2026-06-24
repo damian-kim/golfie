@@ -31,6 +31,7 @@ from golfie_render.threejs import build_trajectory_payload
 
 from golfie_api.pipeline import PipelineError, advance_through_placeholder_stages
 from golfie_api.storage import SessionNotFoundError, session_store
+from golfie_api.config import CALIBRATION_DIR
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -51,7 +52,19 @@ def _get_session_or_404(session_id: str) -> Session:
 
 @router.post("", response_model=Session)
 def create_session(body: CreateSessionRequest = CreateSessionRequest()) -> Session:
-    return session_store.create(**body.model_dump())
+    session = session_store.create(**body.model_dump())
+    
+    # Auto-attach active calibration if it exists
+    active_cal_path = CALIBRATION_DIR / "active_calibration.json"
+    if active_cal_path.exists():
+        try:
+            calibration = CalibrationResult.model_validate_json(active_cal_path.read_text())
+            session.calibration = calibration
+            session_store.save(session)
+        except Exception:
+            pass
+            
+    return session
 
 
 @router.get("", response_model=list[str])
@@ -142,6 +155,17 @@ def set_calibration(session_id: str, calibration: CalibrationResult) -> Session:
 @router.post("/{session_id}/process", response_model=Session)
 def process_session(session_id: str) -> Session:
     session = _get_session_or_404(session_id)
+    
+    # Auto-attach active calibration if it is missing and exists
+    if session.calibration is None:
+        active_cal_path = CALIBRATION_DIR / "active_calibration.json"
+        if active_cal_path.exists():
+            try:
+                calibration = CalibrationResult.model_validate_json(active_cal_path.read_text())
+                session.calibration = calibration
+            except Exception:
+                pass
+
     try:
         session = advance_through_placeholder_stages(session)
     except PipelineError as exc:

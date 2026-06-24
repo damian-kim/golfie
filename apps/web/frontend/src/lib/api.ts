@@ -1,4 +1,4 @@
-import type { Session, ShotResult, TrajectoryPayload } from "./types";
+import type { Session, ShotResult, TrajectoryPayload, CalibrationResult } from "./types";
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -98,5 +98,33 @@ export const api = {
 
   getSampleTrajectory(): Promise<TrajectoryPayload> {
     return request<TrajectoryPayload>("/demo/sample-trajectory");
+  },
+
+  getActiveCalibration(): Promise<CalibrationResult> {
+    return request<CalibrationResult>("/calibration/active");
+  },
+
+  async uploadAndCalibrate(
+    fileA: File,
+    fileB: File,
+    boardType: string = "charuco",
+    gridCols: number = 11,
+    gridRows: number = 8,
+    squareSize: number = 0.04,
+    markerSize: number = 0.03
+  ): Promise<CalibrationResult> {
+    const form = new FormData();
+    form.append("file_a", fileA);
+    form.append("file_b", fileB);
+    form.append("board_type", boardType);
+    form.append("grid_cols", gridCols.toString());
+    form.append("grid_rows", gridRows.toString());
+    form.append("square_size", squareSize.toString());
+    form.append("marker_size", markerSize.toString());
+
+    return request<CalibrationResult>("/calibration/upload", {
+      method: "POST",
+      body: form,
+    });
   },
 };

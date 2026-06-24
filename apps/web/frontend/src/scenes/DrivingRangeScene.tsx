@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, Sky, Cloud } from "@react-three/drei";
 import type { ScenePoint } from "../lib/types";
 import { RangeEnvironment } from "./RangeEnvironment";
 import { TrajectoryTracer } from "./TrajectoryTracer";
@@ -68,8 +68,12 @@ export function DrivingRangeScene({ simulated, measured = [], fitted = [] }: Dri
 
       <div className="driving-range__canvas-wrap">
         <Canvas shadows camera={{ position: cameraPosition, fov: 42, far: 2000 }}>
-          <color attach="background" args={["#0b1410"]} />
-          <fog attach="fog" args={["#0b1410", 60, Math.max(bounds.maxDownrangeM * 2.2, 80)]} />
+          <color attach="background" args={["#cde3f2"]} />
+          <fog attach="fog" args={["#cde3f2", 150, Math.max(bounds.maxDownrangeM * 2.5, 300)]} />
+          <Sky distance={450000} sunPosition={[50, 75, 25]} inclination={0} azimuth={0.25} />
+          <Cloud position={[-15, 30, -35]} opacity={0.5} speed={0.15} segments={8} scale={1.2} />
+          <Cloud position={[35, 45, 35]} opacity={0.4} speed={0.12} segments={10} scale={1.5} />
+          <Cloud position={[90, 55, -25]} opacity={0.3} speed={0.2} segments={12} scale={2.0} />
           <RangeEnvironment bounds={bounds} />
           {visibleLayers.simulated && (
             <TrajectoryTracer points={simulated} color="#4cc273" lineWidth={3} />

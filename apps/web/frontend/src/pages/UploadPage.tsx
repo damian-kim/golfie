@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
 import "../styles/forms.css";
@@ -18,6 +18,13 @@ export function UploadPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<string | null>(null);
+  const [calibrated, setCalibrated] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api.getActiveCalibration()
+      .then(() => setCalibrated(true))
+      .catch(() => setCalibrated(false));
+  }, []);
 
   const canSubmit = fileA !== null && fileB !== null && !busy;
 
@@ -59,6 +66,24 @@ export function UploadPage() {
           reliable ball tracking once detection is implemented.
         </p>
       </div>
+
+      {calibrated === true && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(16, 185, 129, 0.1)", borderLeft: "4px solid #10b981", color: "#34d399", padding: "12px 18px", borderRadius: 8, marginBottom: 20 }}>
+          <span>✓ Cameras Calibrated (Active rig configuration found on backend)</span>
+          <button type="button" className="primary-button" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.15)", fontSize: "0.85em", padding: "6px 12px", width: "auto" }} onClick={() => navigate("/calibrate")}>
+            Recalibrate Setup
+          </button>
+        </div>
+      )}
+
+      {calibrated === false && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(245, 158, 11, 0.1)", borderLeft: "4px solid #f59e0b", color: "#fbbf24", padding: "12px 18px", borderRadius: 8, marginBottom: 20 }}>
+          <span>⚠ Cameras Not Calibrated. Processing will fall back to simulated/placeholder flight data.</span>
+          <button type="button" className="primary-button" style={{ background: "#d97706", fontSize: "0.85em", padding: "6px 12px", width: "auto" }} onClick={() => navigate("/calibrate")}>
+            Calibrate Cameras
+          </button>
+        </div>
+      )}
 
       {error && <div className="error-banner">{error}</div>}
 

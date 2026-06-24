@@ -3,6 +3,7 @@ import "./Header.css";
 
 const STEPS: { path: string; label: string }[] = [
   { path: "/", label: "Upload" },
+  { path: "/calibrate", label: "Calibrate" },
   { path: "/demo", label: "Demo range" },
 ];
 
