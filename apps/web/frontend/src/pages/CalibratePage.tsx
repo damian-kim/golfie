@@ -47,9 +47,9 @@ export function CalibratePage() {
   }
 
   return (
-    <div className="page" style={{ maxWidth: 800, margin: "0 auto", padding: "40px 20px" }}>
+    <div className="page page--focused" style={{ padding: "40px 24px" }}>
       <div style={{ marginBottom: 30 }}>
-        <h1 className="page__title" style={{ background: "linear-gradient(135deg, #60a5fa, #3b82f6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+        <h1 className="page__title">
           Calibrate Camera Rig
         </h1>
         <p className="page__subtitle">
@@ -58,37 +58,37 @@ export function CalibratePage() {
       </div>
 
       {error && (
-        <div className="error-banner" style={{ borderLeft: "4px solid #ef4444", background: "rgba(239, 68, 68, 0.1)", color: "#f87171", padding: 16, borderRadius: 8, marginBottom: 20 }}>
+        <div className="error-banner" style={{ marginBottom: 20 }}>
           <h4 style={{ margin: "0 0 6px 0", fontWeight: "bold" }}>Calibration Failed</h4>
           <p style={{ margin: 0, fontSize: "0.95em" }}>{error}</p>
         </div>
       )}
 
       {result && (
-        <div className="card" style={{ border: "1px solid #10b981", background: "rgba(16, 185, 129, 0.05)", borderRadius: 12, padding: 24, marginBottom: 30 }}>
-          <h2 className="card__title" style={{ color: "#10b981", display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="card" style={{ borderColor: "rgba(76, 194, 115, 0.45)", background: "rgba(10, 16, 13, 0.85)", padding: 24, marginBottom: 30 }}>
+          <h2 className="card__title" style={{ color: "var(--color-turf-bright)", display: "flex", alignItems: "center", gap: 8 }}>
             ✓ Rig Calibrated Successfully
           </h2>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 16 }}>
             <div>
-              <span className="field__label" style={{ color: "#9ca3af" }}>Reprojection Error</span>
-              <div style={{ fontSize: "1.8em", fontWeight: "bold", color: "#f3f4f6" }}>
-                {result.reprojection_error_px?.toFixed(3)} <span style={{ fontSize: "0.5em", fontWeight: "normal" }}>px</span>
+              <span className="field__label" style={{ color: "var(--color-muted)" }}>Reprojection Error</span>
+              <div style={{ fontSize: "1.8em", fontWeight: "bold", fontFamily: "var(--font-mono)", color: "var(--color-ink)" }}>
+                {result.reprojection_error_px?.toFixed(3)} <span style={{ fontSize: "0.5em", fontWeight: "normal", color: "var(--color-muted)" }}>px</span>
               </div>
             </div>
             <div>
-              <span className="field__label" style={{ color: "#9ca3af" }}>Confidence Score</span>
-              <div style={{ fontSize: "1.8em", fontWeight: "bold", color: "#f3f4f6" }}>
+              <span className="field__label" style={{ color: "var(--color-muted)" }}>Confidence Score</span>
+              <div style={{ fontSize: "1.8em", fontWeight: "bold", fontFamily: "var(--font-mono)", color: "var(--color-ink)" }}>
                 {Math.round(result.confidence * 100)}%
               </div>
             </div>
           </div>
 
-          <div style={{ marginTop: 24, padding: "12px 0 0 0", borderTop: "1px solid rgba(255,255,255,0.1)", display: "flex", gap: 14 }}>
+          <div style={{ marginTop: 24, padding: "16px 0 0 0", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", gap: 14 }}>
             <button className="primary-button" onClick={() => navigate("/")}>
               Continue to upload shot →
             </button>
-            <button className="primary-button" style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.2)" }} onClick={() => setResult(null)}>
+            <button className="primary-button" style={{ borderColor: "var(--color-muted)" }} onClick={() => setResult(null)}>
               Recalibrate
             </button>
           </div>
@@ -98,9 +98,9 @@ export function CalibratePage() {
       {!result && (
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 24 }}>
           {/* Setup Walkthrough Card */}
-          <div className="card" style={{ border: "1px solid rgba(59, 130, 246, 0.2)", background: "rgba(59, 130, 246, 0.03)" }}>
-            <h2 className="card__title" style={{ color: "#60a5fa" }}>Setup Instructions</h2>
-            <ol style={{ paddingLeft: 20, margin: "10px 0 0 0", display: "flex", flexDirection: "column", gap: 10, color: "#d1d5db" }}>
+          <div className="card" style={{ borderColor: "rgba(76, 194, 115, 0.2)", background: "rgba(10, 16, 13, 0.72)" }}>
+            <h2 className="card__title" style={{ color: "var(--color-turf-bright)" }}>Setup Instructions</h2>
+            <ol style={{ paddingLeft: 20, margin: "10px 0 0 0", display: "flex", flexDirection: "column", gap: 10, color: "var(--color-muted)", fontSize: "13px", lineHeight: "1.5" }}>
               <li>
                 Print a <strong>ChArUco</strong> (recommended) or <strong>Chessboard</strong> calibration board and mount it flat.
               </li>
@@ -209,11 +209,11 @@ export function CalibratePage() {
             <button type="submit" className="primary-button" disabled={!canSubmit}>
               {busy ? "Processing Calibration…" : "Run Calibration"}
             </button>
-            <button type="button" className="primary-button" style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.2)" }} onClick={() => navigate("/")}>
+            <button type="button" className="primary-button" style={{ borderColor: "var(--color-muted-dim)" }} onClick={() => navigate("/")}>
               Cancel
             </button>
             {busy && (
-              <span className="page__subtitle" style={{ margin: 0, animation: "pulse 1.5s infinite" }}>
+              <span className="page__subtitle" style={{ margin: 0, color: "var(--color-turf-bright)" }}>
                 Analyzing video files, extracting synced frames, detecting targets, and calculating camera matrix offsets…
               </span>
             )}

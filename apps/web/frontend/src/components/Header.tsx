@@ -31,20 +31,6 @@ export function Header() {
           ))}
         </nav>
       </div>
-      <svg className="app-header__tracer" viewBox="0 0 1000 12" preserveAspectRatio="none" aria-hidden="true">
-        <line x1="0" y1="6" x2="1000" y2="6" stroke="var(--color-border)" strokeWidth="1" />
-        <line
-          x1="0"
-          y1="6"
-          x2="1000"
-          y2="6"
-          stroke="var(--color-turf-bright)"
-          strokeWidth="1.5"
-          strokeDasharray="2 10"
-          opacity="0.55"
-        />
-        <circle cx="0" cy="6" r="3" fill="var(--color-turf-bright)" />
-      </svg>
     </header>
   );
 }

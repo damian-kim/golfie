@@ -19,13 +19,19 @@ export function SimulatorPage() {
   }, [sessionId]);
 
   return (
-    <div className="page">
-      <div>
-        <h1 className="page__title">Simulator</h1>
-        <p className="page__subtitle mono">session {sessionId}</p>
-      </div>
-      {error && <div className="error-banner">{error}</div>}
-      {payload && <ShotSimulatorView payload={payload} />}
+    <div className="page page--full">
+      {error && (
+        <div className="error-banner" style={{ position: "absolute", top: "20px", left: "50%", transform: "translateX(-50%)", zIndex: 100, boxShadow: "0 4px 20px rgba(226, 87, 76, 0.3)" }}>
+          {error}
+        </div>
+      )}
+      {payload && (
+        <ShotSimulatorView
+          payload={payload}
+          title="Shot Simulator"
+          subtitle={`Telemetry & Trajectory Replay · Session ${sessionId}`}
+        />
+      )}
     </div>
   );
 }

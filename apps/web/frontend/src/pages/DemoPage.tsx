@@ -22,16 +22,19 @@ export function DemoPage() {
   }, []);
 
   return (
-    <div className="page">
-      <div>
-        <h1 className="page__title">Demo driving range</h1>
-        <p className="page__subtitle">
-          A synthetic example shot used to develop and showcase the renderer -- not derived from
-          any real video. Use this to verify the 3D scene before reconstructed shots exist.
-        </p>
-      </div>
-      {error && <div className="error-banner">{error}</div>}
-      {payload && <ShotSimulatorView payload={payload} />}
+    <div className="page page--full">
+      {error && (
+        <div className="error-banner" style={{ position: "absolute", top: "20px", left: "50%", transform: "translateX(-50%)", zIndex: 100, boxShadow: "0 4px 20px rgba(226, 87, 76, 0.3)" }}>
+          {error}
+        </div>
+      )}
+      {payload && (
+        <ShotSimulatorView
+          payload={payload}
+          title="Demo Driving Range"
+          subtitle="Synthetic flight profile utilized for WebGL rendering validation."
+        />
+      )}
     </div>
   );
 }

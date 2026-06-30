@@ -68,18 +68,18 @@ export function UploadPage() {
       </div>
 
       {calibrated === true && (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(16, 185, 129, 0.1)", borderLeft: "4px solid #10b981", color: "#34d399", padding: "12px 18px", borderRadius: 8, marginBottom: 20 }}>
-          <span>✓ Cameras Calibrated (Active rig configuration found on backend)</span>
-          <button type="button" className="primary-button" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.15)", fontSize: "0.85em", padding: "6px 12px", width: "auto" }} onClick={() => navigate("/calibrate")}>
+        <div className="status-banner status-banner--success">
+          <span className="status-banner__text">✓ Cameras Calibrated (Active rig configuration found on backend)</span>
+          <button type="button" className="status-banner__button" onClick={() => navigate("/calibrate")}>
             Recalibrate Setup
           </button>
         </div>
       )}
 
       {calibrated === false && (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(245, 158, 11, 0.1)", borderLeft: "4px solid #f59e0b", color: "#fbbf24", padding: "12px 18px", borderRadius: 8, marginBottom: 20 }}>
-          <span>⚠ Cameras Not Calibrated. Processing will fall back to simulated/placeholder flight data.</span>
-          <button type="button" className="primary-button" style={{ background: "#d97706", fontSize: "0.85em", padding: "6px 12px", width: "auto" }} onClick={() => navigate("/calibrate")}>
+        <div className="status-banner status-banner--warning">
+          <span className="status-banner__text">⚠ Cameras Not Calibrated. Processing will fall back to simulated/placeholder flight data.</span>
+          <button type="button" className="status-banner__button" onClick={() => navigate("/calibrate")}>
             Calibrate Cameras
           </button>
         </div>
@@ -87,7 +87,7 @@ export function UploadPage() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 24 }}>
         <div className="card">
           <h2 className="card__title">Shot metadata (optional)</h2>
           <div className="form-grid">
@@ -147,11 +147,11 @@ export function UploadPage() {
           />
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <button type="submit" className="primary-button" disabled={!canSubmit}>
             {busy ? "Uploading…" : "Create session & upload"}
           </button>
-          {step && <span className="page__subtitle" style={{ margin: 0 }}>{step}</span>}
+          {step && <span className="page__subtitle" style={{ color: "var(--color-turf-bright)" }}>{step}</span>}
         </div>
       </form>
     </div>

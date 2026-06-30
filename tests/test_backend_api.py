@@ -203,6 +203,11 @@ def test_full_session_lifecycle_with_real_pipeline(client, sample_clip, monkeypa
 def test_calibration_endpoints(client, tmp_path, monkeypatch):
     from pathlib import Path
     
+    # Isolate calibration directory to prevent reading/writing real active calibration from host disk
+    monkeypatch.setattr("golfie_api.routers.calibration.CALIBRATION_DIR", tmp_path)
+    monkeypatch.setattr("golfie_api.routers.calibration.ACTIVE_CALIBRATION_PATH", tmp_path / "active_calibration.json")
+    monkeypatch.setattr("golfie_api.routers.sessions.CALIBRATION_DIR", tmp_path)
+    
     # 1. Active calibration should initially return 404
     resp = client.get("/calibration/active")
     assert resp.status_code == 404

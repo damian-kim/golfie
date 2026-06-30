@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-26T22:50:00Z",
+  "title": "Design System: Golfie",
+  "extensions": {
+    "colorMeta": {
+      "bg":          { "role": "background", "displayName": "Void Green",    "canonical": "oklch(14% 0.015 150)" },
+      "surface":     { "role": "surface",    "displayName": "Base Surface",  "canonical": "oklch(18% 0.015 150)" },
+      "turf-bright": { "role": "primary",    "displayName": "Glowing Green", "canonical": "oklch(76% 0.18 140)" },
+      "amber":       { "role": "secondary",  "displayName": "Data Amber",    "canonical": "oklch(75% 0.16 75)" },
+      "violet":      { "role": "secondary",  "displayName": "Model Violet",  "canonical": "oklch(62% 0.17 290)" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display Space", "purpose": "HUD panel headers." },
+      "body":    { "displayName": "Body Sans",     "purpose": "Labels and descriptions." },
+      "label":   { "displayName": "Telemetry Mono", "purpose": "Live numerical meters." }
+    },
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Metric Card",
+      "kind": "card",
+      "refersTo": "metric-card",
+      "description": "Standard HUD widget displaying numerical telemetry and a progress gauge.",
+      "html": "<div class=\"ds-metric-card ds-metric-card--measured\"><div class=\"ds-metric-card__header\"><div class=\"ds-metric-card__label\">Ball Speed</div><span class=\"ds-source-badge\">Measured 100%</span></div><div class=\"ds-metric-card__value\">154.2 mph</div><div class=\"ds-metric-card__gauge-track\"><div class=\"ds-metric-card__gauge-bar\" style=\"width: 85%\"></div></div></div>",
+      "css": ".ds-metric-card { background: rgba(10, 16, 13, 0.72); backdrop-filter: blur(8px); border: 1px solid rgba(76, 194, 115, 0.25); border-radius: 6px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 140px; border-left: 3px solid #e8a23a; } .ds-metric-card__header { display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: rgba(255,255,255,0.65); } .ds-metric-card__label { font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; } .ds-metric-card__value { font-family: monospace; font-size: 26px; font-weight: 700; color: #e8a23a; text-shadow: 0 0 8px rgba(232, 162, 58, 0.4); } .ds-metric-card__gauge-track { width: 100%; height: 4px; background: rgba(255, 255, 255, 0.08); border-radius: 6px; overflow: hidden; } .ds-metric-card__gauge-bar { height: 100%; background: linear-gradient(90deg, rgba(232, 162, 58, 0.2), #e8a23a); box-shadow: 0 0 6px #e8a23a; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Tactical Telemetry Bay",
+    "overview": "Golfie's visual interface is designed as an immersive, full-bleed gaming HUD overlaid on top of a 3D driving range. It balances rich telemetry with minimal, flat, and quiet aesthetics.",
+    "keyCharacteristics": [
+      "Full-bleed Viewport: The 3D scene is the base layer and runs edge-to-edge behind overlays.",
+      "Glassmorphic HUD Overlays: UI widgets float on top using semi-transparent dark backdrops and thin accent-colored borders.",
+      "Restrained Interaction: Focus states and active layers use thin glowing rings rather than scale animations."
+    ],
+    "rules": [
+      { "name": "The Telemetry Source Rule", "body": "Color coding is strictly functional: green represents simulated/estimated data, amber represents raw measured values, and violet represents mathematically fitted curves. Never mix these color roles.", "section": "colors" },
+      { "name": "The Flat-Depth Rule", "body": "HUD panels and widgets do not use shadows. They float above the 3D canvas using dark, translucent fills (rgba(10, 16, 13, 0.72)) and thin border lines to establish depth.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do align telemetry panels absolutely to the sides of the viewport, leaving the center of the screen open for the 3D scene.",
+      "Do use JetBrains Mono for all numeric readouts to ensure clean tabular digit alignment.",
+      "Do use green, amber, and violet strictly to represent the data source (estimated, measured, fitted)."
+    ],
+    "donts": [
+      "Don't use cluttered arcade-style buttons, thick progress bars, or loud icons.",
+      "Don't add drop shadows or translation effects to HUD overlays.",
+      "Don't use gradient text or rounded pill containers on telemetry widgets."
+    ]
+  }
+}

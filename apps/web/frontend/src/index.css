@@ -21,6 +21,17 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
+
+  /* Fishing Planet / OCI Gaming HUD style variables */
+  --hud-bg: rgba(10, 16, 13, 0.72);
+  --hud-bg-hover: rgba(20, 32, 26, 0.85);
+  --hud-border: rgba(76, 194, 115, 0.25);
+  --hud-border-active: var(--color-turf-bright);
+  --hud-glow-green: #4cc273;
+  --hud-glow-amber: #e8a23a;
+  --hud-glow-violet: #8b7ce0;
+  --hud-text-shadow: 0 0 10px rgba(76, 194, 115, 0.5);
+  --hud-box-shadow: 0 10px 40px rgba(0, 0, 0, 0.65), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 * {
