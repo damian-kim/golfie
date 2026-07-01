@@ -41,36 +41,28 @@ def track_ball_2d(
                 # Static prediction (zero velocity)
                 return self.candidates[0].x_px, self.candidates[0].y_px
 
-            t = np.array([f / fps for f in self.frames])
-            x = np.array([c.x_px for c in self.candidates])
-            y = np.array([c.y_px for c in self.candidates])
+            # Always use linear extrapolation (constant velocity) during the tracking association loop.
+            # Fitting a full quadratic curve (np.polyfit) in the online loop is extremely slow due to NumPy 
+            # overhead and is physically unnecessary over a single-frame interval (dt <= 0.033s), where 
+            # gravity/drag displacement is less than a pixel.
+            t_last2 = self.frames[-2:]
+            x_last2 = [c.x_px for c in self.candidates[-2:]]
+            y_last2 = [c.y_px for c in self.candidates[-2:]]
+            
             t_target = frame_index / fps
-
-            if n == 2:
-                # Linear extrapolation (constant velocity)
-                vx = (x[1] - x[0]) / (t[1] - t[0])
-                vy = (y[1] - y[0]) / (t[1] - t[0])
-                pred_x = x[1] + vx * (t_target - t[1])
-                pred_y = y[1] + vy * (t_target - t[1])
-                return float(pred_x), float(pred_y)
-
-            # n >= 3: Quadratic extrapolation (constant acceleration under gravity/drag)
-            try:
-                # Shift t relative to t[0] to avoid numerical issues
-                t_shifted = t - t[0]
-                t_target_shifted = t_target - t[0]
-                coef_x = np.polyfit(t_shifted, x, 2)
-                coef_y = np.polyfit(t_shifted, y, 2)
-                pred_x = np.polyval(coef_x, t_target_shifted)
-                pred_y = np.polyval(coef_y, t_target_shifted)
-                return float(pred_x), float(pred_y)
-            except Exception:
-                # Fallback to linear using the last two points
-                vx = (x[-1] - x[-2]) / (t[-1] - t[-2])
-                vy = (y[-1] - y[-2]) / (t[-1] - t[-2])
-                pred_x = x[-1] + vx * (t_target - t[-1])
-                pred_y = y[-1] + vy * (t_target - t[-1])
-                return float(pred_x), float(pred_y)
+            t0 = t_last2[0] / fps
+            t1 = t_last2[1] / fps
+            
+            dt = t1 - t0
+            if dt < 1e-6:
+                return x_last2[1], y_last2[1]
+                
+            vx = (x_last2[1] - x_last2[0]) / dt
+            vy = (y_last2[1] - y_last2[0]) / dt
+            
+            pred_x = x_last2[1] + vx * (t_target - t1)
+            pred_y = y_last2[1] + vy * (t_target - t1)
+            return float(pred_x), float(pred_y)
 
         def add_candidate(self, frame_index: int, candidate: BallCandidate):
             self.frames.append(frame_index)
@@ -185,8 +177,9 @@ def track_ball_2d(
     if not valid_tracks:
         return []
 
-    # If there are any moving tracks (displacement >= 15.0 px), filter out stationary tracks
-    moving_tracks = [t for t in valid_tracks if t.total_displacement() >= 15.0]
+    # Filter for tracks that represent a fast-moving ball (average speed >= 5.0 pixels per frame)
+    # This filters out background noise/drifting tracks and slower descent tracks.
+    moving_tracks = [t for t in valid_tracks if (t.total_displacement() / len(t.candidates)) >= 5.0]
     if moving_tracks:
         valid_tracks = moving_tracks
 

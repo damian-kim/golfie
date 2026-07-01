@@ -49,6 +49,8 @@ def run_real_processing(session: Session) -> ShotResult:
 
     import cv2
     import numpy as np
+    from datetime import datetime
+    from golfie_api.storage import session_store
     from golfie_cv.detection import build_background_model, detect_ball_candidates
     from golfie_cv.tracking import track_ball_2d
     from golfie_cv.triangulation import triangulate_track
@@ -57,14 +59,26 @@ def run_real_processing(session: Session) -> ShotResult:
     from golfie_core.schemas import MetricValue, MetricSource, TrackedPoint2D, TrackedPoint3D
     from golfie_core.schemas.shot import ShotMetrics, ShotResult
 
-    def read_frames(path):
+    def log_progress(msg, stage=None):
+        try:
+            with open(r"E:\Golfie\golfie\progress.log", "a") as f:
+                f.write(f"[{datetime.now().isoformat()}] Session {session.session_id}: {msg}\n")
+            if stage is not None:
+                session.stage = stage
+                session_store.save(session)
+        except Exception:
+            pass
+
+    log_progress("Starting real processing pipeline", ProcessingStage.DETECTING_IMPACT)
+
+    def read_initial_frames(path, count=20):
         cap = cv2.VideoCapture(str(path))
         if not cap.isOpened():
             cap.release()
             raise PipelineError(f"Could not open video file: {path}")
         frames = []
         try:
-            while True:
+            for _ in range(count):
                 ok, frame = cap.read()
                 if not ok or frame is None:
                     break
@@ -74,30 +88,76 @@ def run_real_processing(session: Session) -> ShotResult:
         return frames
 
     try:
-        frames_a = read_frames(session.camera_a.video_path)
-        frames_b = read_frames(session.camera_b.video_path)
+        log_progress("Reading initial background frames for Camera A...")
+        initial_frames_a = read_initial_frames(session.camera_a.video_path, 20)
+        log_progress("Reading initial background frames for Camera B...")
+        initial_frames_b = read_initial_frames(session.camera_b.video_path, 20)
     except Exception as e:
+        log_progress(f"OOM or error reading initial frames: {e}")
         raise PipelineError(f"Error reading video frames: {e}")
 
-    if not frames_a or not frames_b:
+    if not initial_frames_a or not initial_frames_b:
+        log_progress("Error: One or both videos empty")
         raise PipelineError("One or both video files contain no readable frames.")
 
     fps_a = session.camera_a.fps
     fps_b = session.camera_b.fps
 
-    # 1. Background Modeling
-    bg_a = build_background_model(frames_a[:20])
-    bg_b = build_background_model(frames_b[:20])
+    log_progress("Building background models...")
+    bg_a = build_background_model(initial_frames_a)
+    bg_b = build_background_model(initial_frames_b)
 
-    # 2. Candidate Detection
-    candidates_a = [detect_ball_candidates(f, bg_a) for f in frames_a]
-    candidates_b = [detect_ball_candidates(f, bg_b) for f in frames_b]
+    # Free memory immediately
+    del initial_frames_a
+    del initial_frames_b
+    import gc
+    gc.collect()
+
+    log_progress("Background modeling complete, starting candidate detection...", ProcessingStage.DETECTING_BALL)
+
+    # 2. Candidate Detection (streaming)
+    def detect_candidates_stream(path, bg_model, label="Camera"):
+        cap = cv2.VideoCapture(str(path))
+        if not cap.isOpened():
+            cap.release()
+            raise PipelineError(f"Could not open video file: {path}")
+        
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        log_progress(f"[{label}] Processing {total_frames} frames...")
+        
+        candidates = []
+        try:
+            frame_idx = 0
+            while True:
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    break
+                candidates.append(detect_ball_candidates(frame, bg_model))
+                frame_idx += 1
+                if frame_idx % 100 == 0:
+                    log_progress(f"[{label}] Processed {frame_idx}/{total_frames} frames ({(frame_idx / total_frames * 100):.1f}%)")
+        finally:
+            cap.release()
+        log_progress(f"[{label}] Finished processing {frame_idx} frames.")
+        return candidates
+
+    try:
+        candidates_a = detect_candidates_stream(session.camera_a.video_path, bg_a, "Camera A")
+        candidates_b = detect_candidates_stream(session.camera_b.video_path, bg_b, "Camera B")
+    except Exception as e:
+        log_progress(f"Error in candidate detection loop: {e}")
+        raise PipelineError(f"Error processing video frames: {e}")
+
+    log_progress("Candidate detection complete, starting 2D tracking...", ProcessingStage.TRACKING_BALL)
 
     # 3. 2D Tracking
     track_a = track_ball_2d(candidates_a, fps_a)
     track_b = track_ball_2d(candidates_b, fps_b)
 
+    log_progress(f"2D tracking complete. Track A: {len(track_a)} pts, Track B: {len(track_b)} pts.")
+
     if not track_a or not track_b:
+        log_progress("Tracking failed to resolve ball tracks in both cameras.")
         return ShotResult(
             metrics=ShotMetrics(),
             measured_points_3d=[],
@@ -108,12 +168,22 @@ def run_real_processing(session: Session) -> ShotResult:
             notes="Real pipeline ran but failed to find/track the ball."
         )
 
+    log_progress("Starting 3D triangulation...", ProcessingStage.TRIANGULATING)
+
     # 4. Sync-align Camera B track to Camera A timeline
-    sync_offset_sec = 0.0
-    sync_offset_frames = 0.0
-    if session.sync is not None:
-        sync_offset_sec = session.sync.offset_seconds
-        sync_offset_frames = session.sync.offset_frames
+    # We prefer visual alignment based on the start of the detected ball tracks
+    # because it is immune to microphone latency, audio-video lag in containers,
+    # or audio correlation failures.
+    if track_a and track_b:
+        sync_offset_frames = float(track_a[0].frame_index - track_b[0].frame_index)
+        sync_offset_sec = sync_offset_frames / fps_a
+        log_progress(f"Using visual track alignment. Start A: frame {track_a[0].frame_index}, Start B: frame {track_b[0].frame_index}. Visual offset: {sync_offset_sec:.3f}s ({sync_offset_frames:.1f} frames).")
+    else:
+        sync_offset_sec = 0.0
+        sync_offset_frames = 0.0
+        if session.sync is not None:
+            sync_offset_sec = session.sync.offset_seconds
+            sync_offset_frames = session.sync.offset_frames
 
     aligned_track_b = [
         TrackedPoint2D(
@@ -129,7 +199,9 @@ def run_real_processing(session: Session) -> ShotResult:
     # 5. Triangulation
     try:
         measured_3d = triangulate_track(track_a, aligned_track_b, session.calibration)
+        log_progress(f"Triangulated {len(measured_3d)} points in 3D.")
     except Exception as e:
+        log_progress(f"Triangulation failed: {e}")
         return ShotResult(
             metrics=ShotMetrics(),
             measured_points_3d=[],
@@ -141,6 +213,7 @@ def run_real_processing(session: Session) -> ShotResult:
         )
 
     if len(measured_3d) < 3:
+        log_progress("Too few 3D points to fit model.")
         return ShotResult(
             metrics=ShotMetrics(),
             measured_points_3d=measured_3d,
@@ -151,10 +224,14 @@ def run_real_processing(session: Session) -> ShotResult:
             notes="Triangulation produced too few points."
         )
 
+    log_progress("Fitting physics model initial conditions...", ProcessingStage.FITTING_PHYSICS)
+
     # 6. Fit Physics Initial Conditions
     try:
         fit_res = fit_initial_conditions(measured_3d)
+        log_progress(f"Physics model fit: velocity={fit_res.initial_velocity_mps} m/s, speed={np.linalg.norm(fit_res.initial_velocity_mps):.2f} m/s, confidence={fit_res.confidence:.2f}")
     except Exception as e:
+        log_progress(f"Fitting failed: {e}")
         return ShotResult(
             metrics=ShotMetrics(),
             measured_points_3d=measured_3d,
@@ -164,6 +241,8 @@ def run_real_processing(session: Session) -> ShotResult:
             is_placeholder=False,
             notes="Physics model fitting step failed."
         )
+
+    log_progress("Simulating full flight trajectory...", ProcessingStage.RENDERING)
 
     # 7. Simulate Full Flight (RK4 Solver)
     t0 = measured_3d[0].time_seconds
@@ -233,6 +312,8 @@ def run_real_processing(session: Session) -> ShotResult:
     if fit_res.confidence < 0.5:
         warnings.append("Low physics fitting confidence; estimated trajectory might be inaccurate.")
 
+    log_progress(f"Processing complete! Carry: {full_flight.carry_m:.2f} m.")
+
     return ShotResult(
         metrics=metrics,
         measured_points_3d=measured_3d,
@@ -250,8 +331,13 @@ def advance_through_placeholder_stages(session: Session) -> Session:
     Runs real image-processing and trajectory-fitting steps if valid
     calibration data is present.
     """
+    from golfie_api.storage import session_store
+
     session.stage = ProcessingStage.EXTRACTING_FRAMES
+    session_store.save(session)
+
     session.stage = ProcessingStage.SYNCING
+    session_store.save(session)
     
     # Run real video synchronization
     try:
@@ -266,18 +352,26 @@ def advance_through_placeholder_stages(session: Session) -> Session:
             confidence=0.0,
             notes=f"Auto audio sync failed: {e}",
         )
-
-    session.stage = ProcessingStage.DETECTING_IMPACT
-    session.stage = ProcessingStage.DETECTING_BALL
-    session.stage = ProcessingStage.TRACKING_BALL
-    session.stage = ProcessingStage.TRIANGULATING
-    session.stage = ProcessingStage.FITTING_PHYSICS
-    session.stage = ProcessingStage.RENDERING
+    session_store.save(session)
 
     if session.calibration is not None and session.calibration.is_valid:
         session.shot = run_real_processing(session)
     else:
+        # Quickly cycle stages for placeholder/simulated data
+        session.stage = ProcessingStage.DETECTING_IMPACT
+        session_store.save(session)
+        session.stage = ProcessingStage.DETECTING_BALL
+        session_store.save(session)
+        session.stage = ProcessingStage.TRACKING_BALL
+        session_store.save(session)
+        session.stage = ProcessingStage.TRIANGULATING
+        session_store.save(session)
+        session.stage = ProcessingStage.FITTING_PHYSICS
+        session_store.save(session)
+        session.stage = ProcessingStage.RENDERING
+        session_store.save(session)
         session.shot = run_placeholder_processing(session)
 
     session.stage = ProcessingStage.DONE
+    session_store.save(session)
     return session

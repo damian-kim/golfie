@@ -1,0 +1,343 @@
+[2026-06-30T23:26:11.193422] Session 51a0c40054e4: Starting real processing pipeline
+[2026-06-30T23:26:11.194289] Session 51a0c40054e4: Reading initial background frames for Camera A...
+[2026-06-30T23:26:11.413874] Session 51a0c40054e4: Reading initial background frames for Camera B...
+[2026-06-30T23:26:11.625680] Session 51a0c40054e4: Building background models...
+[2026-06-30T23:26:13.264182] Session 51a0c40054e4: Background modeling complete, starting candidate detection...
+[2026-06-30T23:26:13.306505] Session 51a0c40054e4: [Camera A] Processing 1252 frames...
+[2026-06-30T23:26:14.468041] Session 51a0c40054e4: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-06-30T23:26:15.931054] Session 51a0c40054e4: [Camera A] Processed 200/1252 frames (16.0%)
+[2026-06-30T23:26:17.657869] Session 51a0c40054e4: [Camera A] Processed 300/1252 frames (24.0%)
+[2026-06-30T23:26:19.470128] Session 51a0c40054e4: [Camera A] Processed 400/1252 frames (31.9%)
+[2026-06-30T23:26:21.116448] Session 51a0c40054e4: [Camera A] Processed 500/1252 frames (39.9%)
+[2026-06-30T23:26:22.833786] Session 51a0c40054e4: [Camera A] Processed 600/1252 frames (47.9%)
+[2026-06-30T23:26:24.716286] Session 51a0c40054e4: [Camera A] Processed 700/1252 frames (55.9%)
+[2026-06-30T23:26:26.868531] Session 51a0c40054e4: [Camera A] Processed 800/1252 frames (63.9%)
+[2026-06-30T23:26:29.130583] Session 51a0c40054e4: [Camera A] Processed 900/1252 frames (71.9%)
+[2026-06-30T23:26:31.470064] Session 51a0c40054e4: [Camera A] Processed 1000/1252 frames (79.9%)
+[2026-06-30T23:26:34.294783] Session 51a0c40054e4: [Camera A] Processed 1100/1252 frames (87.9%)
+[2026-06-30T23:26:36.857289] Session 51a0c40054e4: [Camera A] Processed 1200/1252 frames (95.8%)
+[2026-06-30T23:26:38.128022] Session 51a0c40054e4: [Camera A] Finished processing 1252 frames.
+[2026-06-30T23:26:38.164959] Session 51a0c40054e4: [Camera B] Processing 308 frames...
+[2026-06-30T23:26:45.891065] Session 51a0c40054e4: [Camera B] Processed 100/308 frames (32.5%)
+[2026-06-30T23:26:56.752793] Session 51a0c40054e4: [Camera B] Processed 200/308 frames (64.9%)
+[2026-06-30T23:27:07.490997] Session 51a0c40054e4: [Camera B] Processed 300/308 frames (97.4%)
+[2026-06-30T23:27:08.325280] Session 51a0c40054e4: [Camera B] Finished processing 308 frames.
+[2026-06-30T23:27:08.325555] Session 51a0c40054e4: Candidate detection complete, starting 2D tracking...
+[2026-06-30T23:31:03.127198] Session 51a0c40054e4: 2D tracking complete. Track A: 707 pts, Track B: 186 pts.
+[2026-06-30T23:31:03.127497] Session 51a0c40054e4: Starting 3D triangulation...
+[2026-06-30T23:31:03.132883] Session 51a0c40054e4: Triangulated 0 points in 3D.
+[2026-06-30T23:31:03.133131] Session 51a0c40054e4: Too few 3D points to fit model.
+[2026-07-01T00:15:42.655980] Session 1a597496d57c: Starting real processing pipeline
+[2026-07-01T00:15:42.656735] Session 1a597496d57c: Reading initial background frames for Camera A...
+[2026-07-01T00:15:42.690408] Session 1a597496d57c: Starting real processing pipeline
+[2026-07-01T00:15:42.691102] Session 1a597496d57c: Reading initial background frames for Camera A...
+[2026-07-01T00:15:42.886837] Session 1a597496d57c: Reading initial background frames for Camera B...
+[2026-07-01T00:15:42.919997] Session 1a597496d57c: Reading initial background frames for Camera B...
+[2026-07-01T00:15:43.111476] Session 1a597496d57c: Building background models...
+[2026-07-01T00:15:43.156191] Session 1a597496d57c: Building background models...
+[2026-07-01T00:15:44.869439] Session 1a597496d57c: Background modeling complete, starting candidate detection...
+[2026-07-01T00:15:44.970235] Session 1a597496d57c: Background modeling complete, starting candidate detection...
+[2026-07-01T00:15:44.970289] Session 1a597496d57c: [Camera A] Processing 1252 frames...
+[2026-07-01T00:15:45.014214] Session 1a597496d57c: [Camera A] Processing 1252 frames...
+[2026-07-01T00:15:46.553424] Session 1a597496d57c: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-07-01T00:15:46.651322] Session 1a597496d57c: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-07-01T00:15:48.451849] Session 1a597496d57c: [Camera A] Processed 200/1252 frames (16.0%)
+[2026-07-01T00:15:48.531801] Session 1a597496d57c: [Camera A] Processed 200/1252 frames (16.0%)
+[2026-07-01T00:15:50.402028] Session 1a597496d57c: [Camera A] Processed 300/1252 frames (24.0%)
+[2026-07-01T00:15:50.497308] Session 1a597496d57c: [Camera A] Processed 300/1252 frames (24.0%)
+[2026-07-01T00:15:52.732752] Session 1a597496d57c: [Camera A] Processed 400/1252 frames (31.9%)
+[2026-07-01T00:15:52.898901] Session 1a597496d57c: [Camera A] Processed 400/1252 frames (31.9%)
+[2026-07-01T00:15:55.035783] Session 1a597496d57c: [Camera A] Processed 500/1252 frames (39.9%)
+[2026-07-01T00:15:55.279646] Session 1a597496d57c: [Camera A] Processed 500/1252 frames (39.9%)
+[2026-07-01T00:15:57.236707] Session 1a597496d57c: [Camera A] Processed 600/1252 frames (47.9%)
+[2026-07-01T00:15:57.464239] Session 1a597496d57c: [Camera A] Processed 600/1252 frames (47.9%)
+[2026-07-01T00:15:59.414483] Session 1a597496d57c: [Camera A] Processed 700/1252 frames (55.9%)
+[2026-07-01T00:15:59.662371] Session 1a597496d57c: [Camera A] Processed 700/1252 frames (55.9%)
+[2026-07-01T00:16:01.902594] Session 1a597496d57c: [Camera A] Processed 800/1252 frames (63.9%)
+[2026-07-01T00:16:02.194665] Session 1a597496d57c: [Camera A] Processed 800/1252 frames (63.9%)
+[2026-07-01T00:16:04.363200] Session 1a597496d57c: [Camera A] Processed 900/1252 frames (71.9%)
+[2026-07-01T00:16:04.677339] Session 1a597496d57c: [Camera A] Processed 900/1252 frames (71.9%)
+[2026-07-01T00:16:07.215417] Session 1a597496d57c: [Camera A] Processed 1000/1252 frames (79.9%)
+[2026-07-01T00:16:07.606013] Session 1a597496d57c: [Camera A] Processed 1000/1252 frames (79.9%)
+[2026-07-01T00:16:10.161816] Session 1a597496d57c: [Camera A] Processed 1100/1252 frames (87.9%)
+[2026-07-01T00:16:10.684555] Session 1a597496d57c: [Camera A] Processed 1100/1252 frames (87.9%)
+[2026-07-01T00:16:13.735313] Session 1a597496d57c: [Camera A] Processed 1200/1252 frames (95.8%)
+[2026-07-01T00:16:14.178053] Session 1a597496d57c: [Camera A] Processed 1200/1252 frames (95.8%)
+[2026-07-01T00:16:15.352034] Session 1a597496d57c: [Camera A] Finished processing 1252 frames.
+[2026-07-01T00:16:15.395104] Session 1a597496d57c: [Camera B] Processing 308 frames...
+[2026-07-01T00:16:15.812835] Session 1a597496d57c: [Camera A] Finished processing 1252 frames.
+[2026-07-01T00:16:15.850891] Session 1a597496d57c: [Camera B] Processing 308 frames...
+[2026-07-01T00:16:25.234830] Session 1a597496d57c: [Camera B] Processed 100/308 frames (32.5%)
+[2026-07-01T00:16:26.251248] Session 1a597496d57c: [Camera B] Processed 100/308 frames (32.5%)
+[2026-07-01T00:16:39.569125] Session 1a597496d57c: [Camera B] Processed 200/308 frames (64.9%)
+[2026-07-01T00:16:40.498998] Session 1a597496d57c: [Camera B] Processed 200/308 frames (64.9%)
+[2026-07-01T00:16:52.999494] Session 1a597496d57c: [Camera B] Processed 300/308 frames (97.4%)
+[2026-07-01T00:16:53.956018] Session 1a597496d57c: [Camera B] Processed 300/308 frames (97.4%)
+[2026-07-01T00:16:54.028232] Session 1a597496d57c: [Camera B] Finished processing 308 frames.
+[2026-07-01T00:16:54.028698] Session 1a597496d57c: Candidate detection complete, starting 2D tracking...
+[2026-07-01T00:17:44.567934] Session 1a597496d57c: [Camera B] Finished processing 308 frames.
+[2026-07-01T00:17:44.568569] Session 1a597496d57c: Candidate detection complete, starting 2D tracking...
+[2026-07-01T00:19:10.267895] Session 51a0c40054e4: Starting real processing pipeline
+[2026-07-01T00:19:10.272197] Session 51a0c40054e4: Reading initial background frames for Camera A...
+[2026-07-01T00:19:10.714619] Session 51a0c40054e4: Reading initial background frames for Camera B...
+[2026-07-01T00:19:11.105200] Session 51a0c40054e4: Building background models...
+[2026-07-01T00:19:13.471854] Session 51a0c40054e4: Background modeling complete, starting candidate detection...
+[2026-07-01T00:19:13.513429] Session 51a0c40054e4: [Camera A] Processing 1252 frames...
+[2026-07-01T00:19:34.583279] Session 51a0c40054e4: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-07-01T00:20:30.906311] Session 51a0c40054e4: Starting real processing pipeline
+[2026-07-01T00:20:30.907073] Session 51a0c40054e4: Reading initial background frames for Camera A...
+[2026-07-01T00:20:31.086785] Session 51a0c40054e4: Reading initial background frames for Camera B...
+[2026-07-01T00:20:31.263559] Session 51a0c40054e4: Building background models...
+[2026-07-01T00:20:32.959622] Session 51a0c40054e4: Background modeling complete, starting candidate detection...
+[2026-07-01T00:20:32.995261] Session 51a0c40054e4: [Camera A] Processing 1252 frames...
+[2026-07-01T00:20:34.202413] Session 51a0c40054e4: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-07-01T00:20:35.820245] Session 51a0c40054e4: [Camera A] Processed 200/1252 frames (16.0%)
+[2026-07-01T00:20:37.356203] Session 51a0c40054e4: [Camera A] Processed 300/1252 frames (24.0%)
+[2026-07-01T00:20:39.148568] Session 51a0c40054e4: [Camera A] Processed 400/1252 frames (31.9%)
+[2026-07-01T00:20:40.993075] Session 51a0c40054e4: [Camera A] Processed 500/1252 frames (39.9%)
+[2026-07-01T00:20:42.743305] Session 51a0c40054e4: [Camera A] Processed 600/1252 frames (47.9%)
+[2026-07-01T00:20:44.689735] Session 51a0c40054e4: [Camera A] Processed 700/1252 frames (55.9%)
+[2026-07-01T00:20:46.823143] Session 51a0c40054e4: [Camera A] Processed 800/1252 frames (63.9%)
+[2026-07-01T00:20:48.902815] Session 51a0c40054e4: [Camera A] Processed 900/1252 frames (71.9%)
+[2026-07-01T00:20:51.343197] Session 51a0c40054e4: [Camera A] Processed 1000/1252 frames (79.9%)
+[2026-07-01T00:20:54.140704] Session 51a0c40054e4: [Camera A] Processed 1100/1252 frames (87.9%)
+[2026-07-01T00:20:56.585696] Session 51a0c40054e4: [Camera A] Processed 1200/1252 frames (95.8%)
+[2026-07-01T00:20:57.751817] Session 51a0c40054e4: [Camera A] Finished processing 1252 frames.
+[2026-07-01T00:20:57.787229] Session 51a0c40054e4: [Camera B] Processing 308 frames...
+[2026-07-01T00:21:04.667775] Session 51a0c40054e4: [Camera B] Processed 100/308 frames (32.5%)
+[2026-07-01T00:21:13.717274] Session 51a0c40054e4: [Camera B] Processed 200/308 frames (64.9%)
+[2026-07-01T00:21:22.673084] Session 51a0c40054e4: [Camera B] Processed 300/308 frames (97.4%)
+[2026-07-01T00:21:23.393936] Session 51a0c40054e4: [Camera B] Finished processing 308 frames.
+[2026-07-01T00:21:23.394375] Session 51a0c40054e4: Candidate detection complete, starting 2D tracking...
+[2026-07-01T00:23:15.050231] Session 51a0c40054e4: 2D tracking complete. Track A: 707 pts, Track B: 198 pts.
+[2026-07-01T00:23:15.051451] Session 51a0c40054e4: Starting 3D triangulation...
+[2026-07-01T00:23:15.061268] Session 51a0c40054e4: Triangulated 0 points in 3D.
+[2026-07-01T00:23:15.061782] Session 51a0c40054e4: Too few 3D points to fit model.
+[2026-07-01T00:23:15.831019] Session 7aeea772b819: Starting real processing pipeline
+[2026-07-01T00:23:15.837728] Session 7aeea772b819: Reading initial background frames for Camera A...
+[2026-07-01T00:23:16.109881] Session 7aeea772b819: Starting real processing pipeline
+[2026-07-01T00:23:16.111200] Session 7aeea772b819: Reading initial background frames for Camera A...
+[2026-07-01T00:23:16.186008] Session 7aeea772b819: Reading initial background frames for Camera B...
+[2026-07-01T00:23:16.486020] Session 7aeea772b819: Reading initial background frames for Camera B...
+[2026-07-01T00:23:16.725236] Session 7aeea772b819: Building background models...
+[2026-07-01T00:23:17.073210] Session 7aeea772b819: Building background models...
+[2026-07-01T00:23:20.276863] Session 7aeea772b819: Background modeling complete, starting candidate detection...
+[2026-07-01T00:23:20.405397] Session 7aeea772b819: Background modeling complete, starting candidate detection...
+[2026-07-01T00:23:20.405508] Session 7aeea772b819: [Camera A] Processing 1252 frames...
+[2026-07-01T00:23:20.476738] Session 7aeea772b819: [Camera A] Processing 1252 frames...
+[2026-07-01T00:23:23.372860] Session 7aeea772b819: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-07-01T00:23:26.889529] Session fa5720d77464: Starting real processing pipeline
+[2026-07-01T00:23:26.895446] Session fa5720d77464: Reading initial background frames for Camera A...
+[2026-07-01T00:23:27.485051] Session fa5720d77464: Reading initial background frames for Camera B...
+[2026-07-01T00:23:27.719002] Session fa5720d77464: Starting real processing pipeline
+[2026-07-01T00:23:27.721577] Session fa5720d77464: Reading initial background frames for Camera A...
+[2026-07-01T00:23:27.856990] Session 7aeea772b819: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-07-01T00:23:28.130182] Session fa5720d77464: Building background models...
+[2026-07-01T00:23:28.743836] Session fa5720d77464: Reading initial background frames for Camera B...
+[2026-07-01T00:23:28.924207] Session 7aeea772b819: [Camera A] Processed 200/1252 frames (16.0%)
+[2026-07-01T00:23:30.132215] Session fa5720d77464: Building background models...
+[2026-07-01T00:23:32.073633] Session fa5720d77464: Background modeling complete, starting candidate detection...
+[2026-07-01T00:23:32.173028] Session fa5720d77464: [Camera A] Processing 1252 frames...
+[2026-07-01T00:23:33.517910] Session 7aeea772b819: [Camera A] Processed 300/1252 frames (24.0%)
+[2026-07-01T00:23:34.816093] Session fa5720d77464: Background modeling complete, starting candidate detection...
+[2026-07-01T00:23:34.959768] Session fa5720d77464: [Camera A] Processing 1252 frames...
+[2026-07-01T00:23:36.668180] Session 7aeea772b819: [Camera A] Processed 200/1252 frames (16.0%)
+[2026-07-01T00:23:37.762330] Session fa5720d77464: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-07-01T00:23:37.931239] Session 7aeea772b819: [Camera A] Processed 400/1252 frames (31.9%)
+[2026-07-01T00:23:40.073780] Session fa5720d77464: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-07-01T00:23:42.772062] Session 7aeea772b819: [Camera A] Processed 500/1252 frames (39.9%)
+[2026-07-01T00:23:43.501159] Session 7aeea772b819: [Camera A] Processed 300/1252 frames (24.0%)
+[2026-07-01T00:23:44.139497] Session fa5720d77464: [Camera A] Processed 200/1252 frames (16.0%)
+[2026-07-01T00:23:45.611398] Session fa5720d77464: [Camera A] Processed 200/1252 frames (16.0%)
+[2026-07-01T00:23:47.580287] Session 7aeea772b819: [Camera A] Processed 600/1252 frames (47.9%)
+[2026-07-01T00:23:49.496511] Session 7aeea772b819: [Camera A] Processed 400/1252 frames (31.9%)
+[2026-07-01T00:23:49.996965] Session fa5720d77464: [Camera A] Processed 300/1252 frames (24.0%)
+[2026-07-01T00:23:51.470733] Session fa5720d77464: [Camera A] Processed 300/1252 frames (24.0%)
+[2026-07-01T00:23:52.918701] Session 7aeea772b819: [Camera A] Processed 700/1252 frames (55.9%)
+[2026-07-01T00:23:56.225263] Session 7aeea772b819: [Camera A] Processed 500/1252 frames (39.9%)
+[2026-07-01T00:23:56.575527] Session fa5720d77464: [Camera A] Processed 400/1252 frames (31.9%)
+[2026-07-01T00:23:57.999822] Session fa5720d77464: [Camera A] Processed 400/1252 frames (31.9%)
+[2026-07-01T00:23:58.861495] Session 7aeea772b819: [Camera A] Processed 800/1252 frames (63.9%)
+[2026-07-01T00:24:04.201648] Session 7aeea772b819: [Camera A] Processed 600/1252 frames (47.9%)
+[2026-07-01T00:24:04.297051] Session fa5720d77464: [Camera A] Processed 500/1252 frames (39.9%)
+[2026-07-01T00:24:05.180811] Session 7aeea772b819: [Camera A] Processed 900/1252 frames (71.9%)
+[2026-07-01T00:24:05.620891] Session fa5720d77464: [Camera A] Processed 500/1252 frames (39.9%)
+[2026-07-01T00:24:11.872470] Session 7aeea772b819: [Camera A] Processed 1000/1252 frames (79.9%)
+[2026-07-01T00:24:11.955788] Session fa5720d77464: [Camera A] Processed 600/1252 frames (47.9%)
+[2026-07-01T00:24:12.047288] Session 7aeea772b819: [Camera A] Processed 700/1252 frames (55.9%)
+[2026-07-01T00:24:12.749458] Session fa5720d77464: [Camera A] Processed 600/1252 frames (47.9%)
+[2026-07-01T00:24:19.218648] Session 7aeea772b819: [Camera A] Processed 1100/1252 frames (87.9%)
+[2026-07-01T00:24:20.233843] Session fa5720d77464: [Camera A] Processed 700/1252 frames (55.9%)
+[2026-07-01T00:24:20.552081] Session 7aeea772b819: [Camera A] Processed 800/1252 frames (63.9%)
+[2026-07-01T00:24:21.082432] Session fa5720d77464: [Camera A] Processed 700/1252 frames (55.9%)
+[2026-07-01T00:24:26.784690] Session 7aeea772b819: [Camera A] Processed 1200/1252 frames (95.8%)
+[2026-07-01T00:24:29.108134] Session fa5720d77464: [Camera A] Processed 800/1252 frames (63.9%)
+[2026-07-01T00:24:29.419184] Session 7aeea772b819: [Camera A] Processed 900/1252 frames (71.9%)
+[2026-07-01T00:24:29.536466] Session fa5720d77464: [Camera A] Processed 800/1252 frames (63.9%)
+[2026-07-01T00:24:30.983415] Session 7aeea772b819: [Camera A] Finished processing 1252 frames.
+[2026-07-01T00:24:31.040580] Session 7aeea772b819: [Camera B] Processing 308 frames...
+[2026-07-01T00:24:37.811220] Session fa5720d77464: [Camera A] Processed 900/1252 frames (71.9%)
+[2026-07-01T00:24:38.114843] Session fa5720d77464: [Camera A] Processed 900/1252 frames (71.9%)
+[2026-07-01T00:24:38.398486] Session 7aeea772b819: [Camera A] Processed 1000/1252 frames (79.9%)
+[2026-07-01T00:24:46.995847] Session fa5720d77464: [Camera A] Processed 1000/1252 frames (79.9%)
+[2026-07-01T00:24:47.230832] Session fa5720d77464: [Camera A] Processed 1000/1252 frames (79.9%)
+[2026-07-01T00:24:47.637254] Session 7aeea772b819: [Camera A] Processed 1100/1252 frames (87.9%)
+[2026-07-01T00:24:56.998195] Session fa5720d77464: [Camera A] Processed 1100/1252 frames (87.9%)
+[2026-07-01T00:24:57.374489] Session fa5720d77464: [Camera A] Processed 1100/1252 frames (87.9%)
+[2026-07-01T00:24:57.734115] Session 7aeea772b819: [Camera B] Processed 100/308 frames (32.5%)
+[2026-07-01T00:24:57.990692] Session 7aeea772b819: [Camera A] Processed 1200/1252 frames (95.8%)
+[2026-07-01T00:25:03.406345] Session 7aeea772b819: [Camera A] Finished processing 1252 frames.
+[2026-07-01T00:25:03.460631] Session 7aeea772b819: [Camera B] Processing 308 frames...
+[2026-07-01T00:25:07.640204] Session fa5720d77464: [Camera A] Processed 1200/1252 frames (95.8%)
+[2026-07-01T00:25:07.738131] Session fa5720d77464: [Camera A] Processed 1200/1252 frames (95.8%)
+[2026-07-01T00:25:12.843698] Session fa5720d77464: [Camera A] Finished processing 1252 frames.
+[2026-07-01T00:25:12.903858] Session fa5720d77464: [Camera B] Processing 308 frames...
+[2026-07-01T00:25:13.051026] Session fa5720d77464: [Camera A] Finished processing 1252 frames.
+[2026-07-01T00:25:13.108235] Session fa5720d77464: [Camera B] Processing 308 frames...
+[2026-07-01T00:25:37.772879] Session 7aeea772b819: [Camera B] Processed 100/308 frames (32.5%)
+[2026-07-01T00:25:38.907910] Session 7aeea772b819: [Camera B] Processed 200/308 frames (64.9%)
+[2026-07-01T00:25:47.568167] Session fa5720d77464: [Camera B] Processed 100/308 frames (32.5%)
+[2026-07-01T00:25:48.295070] Session fa5720d77464: [Camera B] Processed 100/308 frames (32.5%)
+[2026-07-01T00:26:20.363311] Session 7aeea772b819: [Camera B] Processed 300/308 frames (97.4%)
+[2026-07-01T00:26:23.527999] Session 7aeea772b819: [Camera B] Finished processing 308 frames.
+[2026-07-01T00:26:23.528438] Session 7aeea772b819: Candidate detection complete, starting 2D tracking...
+[2026-07-01T00:28:57.252057] Session 7aeea772b819: 2D tracking complete. Track A: 707 pts, Track B: 198 pts.
+[2026-07-01T00:28:57.252483] Session 7aeea772b819: Starting 3D triangulation...
+[2026-07-01T00:28:57.255764] Session 7aeea772b819: Triangulated 0 points in 3D.
+[2026-07-01T00:28:57.256006] Session 7aeea772b819: Too few 3D points to fit model.
+[2026-07-01T00:29:01.024765] Session 7aeea772b819: [Camera B] Processed 200/308 frames (64.9%)
+[2026-07-01T00:29:06.792385] Session fa5720d77464: [Camera B] Processed 200/308 frames (64.9%)
+[2026-07-01T00:29:06.912362] Session fa5720d77464: [Camera B] Processed 200/308 frames (64.9%)
+[2026-07-01T00:29:29.536483] Session 7aeea772b819: [Camera B] Processed 300/308 frames (97.4%)
+[2026-07-01T00:29:31.889661] Session 7aeea772b819: [Camera B] Finished processing 308 frames.
+[2026-07-01T00:29:31.890294] Session 7aeea772b819: Candidate detection complete, starting 2D tracking...
+[2026-07-01T00:32:00.190774] Session 7aeea772b819: 2D tracking complete. Track A: 707 pts, Track B: 198 pts.
+[2026-07-01T00:32:00.191323] Session 7aeea772b819: Starting 3D triangulation...
+[2026-07-01T00:32:00.193915] Session 7aeea772b819: Triangulated 0 points in 3D.
+[2026-07-01T00:32:00.194303] Session 7aeea772b819: Too few 3D points to fit model.
+[2026-07-01T00:32:01.636188] Session fa5720d77464: [Camera B] Processed 300/308 frames (97.4%)
+[2026-07-01T00:32:02.380811] Session fa5720d77464: [Camera B] Processed 300/308 frames (97.4%)
+[2026-07-01T00:32:03.254727] Session fa5720d77464: [Camera B] Finished processing 308 frames.
+[2026-07-01T00:32:03.255105] Session fa5720d77464: Candidate detection complete, starting 2D tracking...
+[2026-07-01T00:33:01.028402] Session fa5720d77464: [Camera B] Finished processing 308 frames.
+[2026-07-01T00:33:01.029006] Session fa5720d77464: Candidate detection complete, starting 2D tracking...
+[2026-07-01T00:35:55.904229] Session fa5720d77464: 2D tracking complete. Track A: 707 pts, Track B: 198 pts.
+[2026-07-01T00:35:56.028402] Session fa5720d77464: Starting 3D triangulation...
+[2026-07-01T00:35:56.151292] Session fa5720d77464: Triangulated 0 points in 3D.
+[2026-07-01T00:35:56.212698] Session fa5720d77464: Too few 3D points to fit model.
+[2026-07-01T00:36:49.231141] Session fa5720d77464: 2D tracking complete. Track A: 707 pts, Track B: 198 pts.
+[2026-07-01T00:36:49.231530] Session fa5720d77464: Starting 3D triangulation...
+[2026-07-01T00:36:49.233731] Session fa5720d77464: Triangulated 0 points in 3D.
+[2026-07-01T00:36:49.233943] Session fa5720d77464: Too few 3D points to fit model.
+[2026-07-01T00:38:19.056473] Session 51a0c40054e4: Starting real processing pipeline
+[2026-07-01T00:38:19.058169] Session 51a0c40054e4: Reading initial background frames for Camera A...
+[2026-07-01T00:38:19.285283] Session 51a0c40054e4: Reading initial background frames for Camera B...
+[2026-07-01T00:38:19.532314] Session 51a0c40054e4: Building background models...
+[2026-07-01T00:38:21.370982] Session 51a0c40054e4: Background modeling complete, starting candidate detection...
+[2026-07-01T00:38:21.408925] Session 51a0c40054e4: [Camera A] Processing 1252 frames...
+[2026-07-01T00:38:22.566589] Session 51a0c40054e4: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-07-01T00:38:24.033071] Session 51a0c40054e4: [Camera A] Processed 200/1252 frames (16.0%)
+[2026-07-01T00:38:25.712932] Session 51a0c40054e4: [Camera A] Processed 300/1252 frames (24.0%)
+[2026-07-01T00:38:27.521212] Session 51a0c40054e4: [Camera A] Processed 400/1252 frames (31.9%)
+[2026-07-01T00:38:29.336531] Session 51a0c40054e4: [Camera A] Processed 500/1252 frames (39.9%)
+[2026-07-01T00:38:31.281914] Session 51a0c40054e4: [Camera A] Processed 600/1252 frames (47.9%)
+[2026-07-01T00:38:33.332859] Session 51a0c40054e4: [Camera A] Processed 700/1252 frames (55.9%)
+[2026-07-01T00:38:35.520559] Session 51a0c40054e4: [Camera A] Processed 800/1252 frames (63.9%)
+[2026-07-01T00:38:38.039590] Session 51a0c40054e4: [Camera A] Processed 900/1252 frames (71.9%)
+[2026-07-01T00:38:40.510734] Session 51a0c40054e4: [Camera A] Processed 1000/1252 frames (79.9%)
+[2026-07-01T00:38:43.089669] Session 51a0c40054e4: [Camera A] Processed 1100/1252 frames (87.9%)
+[2026-07-01T00:38:45.941085] Session 51a0c40054e4: [Camera A] Processed 1200/1252 frames (95.8%)
+[2026-07-01T00:38:47.363463] Session 51a0c40054e4: [Camera A] Finished processing 1252 frames.
+[2026-07-01T00:38:47.401615] Session 51a0c40054e4: [Camera B] Processing 308 frames...
+[2026-07-01T00:38:54.849978] Session 51a0c40054e4: [Camera B] Processed 100/308 frames (32.5%)
+[2026-07-01T00:39:05.641601] Session 51a0c40054e4: [Camera B] Processed 200/308 frames (64.9%)
+[2026-07-01T00:39:16.492490] Session 51a0c40054e4: [Camera B] Processed 300/308 frames (97.4%)
+[2026-07-01T00:39:17.351327] Session 51a0c40054e4: [Camera B] Finished processing 308 frames.
+[2026-07-01T00:39:17.351776] Session 51a0c40054e4: Candidate detection complete, starting 2D tracking...
+[2026-07-01T00:40:35.897710] Session 51a0c40054e4: Starting real processing pipeline
+[2026-07-01T00:40:35.899989] Session 51a0c40054e4: Reading initial background frames for Camera A...
+[2026-07-01T00:40:36.120190] Session 51a0c40054e4: Reading initial background frames for Camera B...
+[2026-07-01T00:40:36.351749] Session 51a0c40054e4: Building background models...
+[2026-07-01T00:40:38.253782] Session 51a0c40054e4: Background modeling complete, starting candidate detection...
+[2026-07-01T00:40:38.294891] Session 51a0c40054e4: [Camera A] Processing 1252 frames...
+[2026-07-01T00:40:39.775249] Session 51a0c40054e4: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-07-01T00:40:41.457519] Session 51a0c40054e4: [Camera A] Processed 200/1252 frames (16.0%)
+[2026-07-01T00:40:43.051539] Session 51a0c40054e4: [Camera A] Processed 300/1252 frames (24.0%)
+[2026-07-01T00:40:44.753496] Session 51a0c40054e4: [Camera A] Processed 400/1252 frames (31.9%)
+[2026-07-01T00:40:46.913973] Session 51a0c40054e4: [Camera A] Processed 500/1252 frames (39.9%)
+[2026-07-01T00:40:48.858129] Session 51a0c40054e4: [Camera A] Processed 600/1252 frames (47.9%)
+[2026-07-01T00:40:51.026889] Session 51a0c40054e4: [Camera A] Processed 700/1252 frames (55.9%)
+[2026-07-01T00:40:53.292264] Session 51a0c40054e4: [Camera A] Processed 800/1252 frames (63.9%)
+[2026-07-01T00:40:55.617314] Session 51a0c40054e4: [Camera A] Processed 900/1252 frames (71.9%)
+[2026-07-01T00:40:58.197629] Session 51a0c40054e4: [Camera A] Processed 1000/1252 frames (79.9%)
+[2026-07-01T00:41:00.564247] Session 51a0c40054e4: [Camera A] Processed 1100/1252 frames (87.9%)
+[2026-07-01T00:41:03.051384] Session 51a0c40054e4: [Camera A] Processed 1200/1252 frames (95.8%)
+[2026-07-01T00:41:04.374936] Session 51a0c40054e4: [Camera A] Finished processing 1252 frames.
+[2026-07-01T00:41:04.411350] Session 51a0c40054e4: [Camera B] Processing 308 frames...
+[2026-07-01T00:41:12.039474] Session 51a0c40054e4: [Camera B] Processed 100/308 frames (32.5%)
+[2026-07-01T00:41:22.808345] Session 51a0c40054e4: [Camera B] Processed 200/308 frames (64.9%)
+[2026-07-01T00:41:33.945473] Session 51a0c40054e4: [Camera B] Processed 300/308 frames (97.4%)
+[2026-07-01T00:41:34.807125] Session 51a0c40054e4: [Camera B] Finished processing 308 frames.
+[2026-07-01T00:41:34.807816] Session 51a0c40054e4: Candidate detection complete, starting 2D tracking...
+[2026-07-01T00:43:42.991646] Session 51a0c40054e4: 2D tracking complete. Track A: 86 pts, Track B: 171 pts.
+[2026-07-01T00:43:42.992048] Session 51a0c40054e4: Starting 3D triangulation...
+[2026-07-01T00:43:42.996616] Session 51a0c40054e4: Triangulated 0 points in 3D.
+[2026-07-01T00:43:42.996865] Session 51a0c40054e4: Too few 3D points to fit model.
+[2026-07-01T00:44:08.958717] Session 51a0c40054e4: Starting real processing pipeline
+[2026-07-01T00:44:08.959600] Session 51a0c40054e4: Reading initial background frames for Camera A...
+[2026-07-01T00:44:09.192985] Session 51a0c40054e4: Reading initial background frames for Camera B...
+[2026-07-01T00:44:09.384487] Session 51a0c40054e4: Building background models...
+[2026-07-01T00:44:11.303432] Session 51a0c40054e4: Background modeling complete, starting candidate detection...
+[2026-07-01T00:44:11.346414] Session 51a0c40054e4: [Camera A] Processing 1252 frames...
+[2026-07-01T00:44:12.900112] Session 51a0c40054e4: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-07-01T00:44:14.616431] Session 51a0c40054e4: [Camera A] Processed 200/1252 frames (16.0%)
+[2026-07-01T00:44:16.294344] Session 51a0c40054e4: [Camera A] Processed 300/1252 frames (24.0%)
+[2026-07-01T00:44:18.002501] Session 51a0c40054e4: [Camera A] Processed 400/1252 frames (31.9%)
+[2026-07-01T00:44:19.809727] Session 51a0c40054e4: [Camera A] Processed 500/1252 frames (39.9%)
+[2026-07-01T00:44:21.534662] Session 51a0c40054e4: [Camera A] Processed 600/1252 frames (47.9%)
+[2026-07-01T00:44:23.401549] Session 51a0c40054e4: [Camera A] Processed 700/1252 frames (55.9%)
+[2026-07-01T00:44:25.534671] Session 51a0c40054e4: [Camera A] Processed 800/1252 frames (63.9%)
+[2026-07-01T00:44:27.456075] Session 51a0c40054e4: [Camera A] Processed 900/1252 frames (71.9%)
+[2026-07-01T00:44:29.371097] Session 51a0c40054e4: [Camera A] Processed 1000/1252 frames (79.9%)
+[2026-07-01T00:44:31.580399] Session 51a0c40054e4: [Camera A] Processed 1100/1252 frames (87.9%)
+[2026-07-01T00:44:33.864392] Session 51a0c40054e4: [Camera A] Processed 1200/1252 frames (95.8%)
+[2026-07-01T00:44:35.069518] Session 51a0c40054e4: [Camera A] Finished processing 1252 frames.
+[2026-07-01T00:44:35.111802] Session 51a0c40054e4: [Camera B] Processing 308 frames...
+[2026-07-01T00:44:42.711606] Session 51a0c40054e4: [Camera B] Processed 100/308 frames (32.5%)
+[2026-07-01T00:44:52.627897] Session 51a0c40054e4: [Camera B] Processed 200/308 frames (64.9%)
+[2026-07-01T00:45:02.733588] Session 51a0c40054e4: [Camera B] Processed 300/308 frames (97.4%)
+[2026-07-01T00:45:03.561242] Session 51a0c40054e4: [Camera B] Finished processing 308 frames.
+[2026-07-01T00:45:03.561496] Session 51a0c40054e4: Candidate detection complete, starting 2D tracking...
+[2026-07-01T00:45:09.418982] Session 51a0c40054e4: 2D tracking complete. Track A: 40 pts, Track B: 39 pts.
+[2026-07-01T00:45:09.419300] Session 51a0c40054e4: Starting 3D triangulation...
+[2026-07-01T00:45:09.422107] Session 51a0c40054e4: Triangulated 0 points in 3D.
+[2026-07-01T00:45:09.422302] Session 51a0c40054e4: Too few 3D points to fit model.
+[2026-07-01T00:50:07.476069] Session 51a0c40054e4: Starting real processing pipeline
+[2026-07-01T00:50:07.476769] Session 51a0c40054e4: Reading initial background frames for Camera A...
+[2026-07-01T00:50:07.647574] Session 51a0c40054e4: Reading initial background frames for Camera B...
+[2026-07-01T00:50:07.809384] Session 51a0c40054e4: Building background models...
+[2026-07-01T00:50:09.346674] Session 51a0c40054e4: Background modeling complete, starting candidate detection...
+[2026-07-01T00:50:09.384337] Session 51a0c40054e4: [Camera A] Processing 1252 frames...
+[2026-07-01T00:50:10.456035] Session 51a0c40054e4: [Camera A] Processed 100/1252 frames (8.0%)
+[2026-07-01T00:50:11.707189] Session 51a0c40054e4: [Camera A] Processed 200/1252 frames (16.0%)
+[2026-07-01T00:50:13.032024] Session 51a0c40054e4: [Camera A] Processed 300/1252 frames (24.0%)
+[2026-07-01T00:50:14.417828] Session 51a0c40054e4: [Camera A] Processed 400/1252 frames (31.9%)
+[2026-07-01T00:50:16.066240] Session 51a0c40054e4: [Camera A] Processed 500/1252 frames (39.9%)
+[2026-07-01T00:50:17.664041] Session 51a0c40054e4: [Camera A] Processed 600/1252 frames (47.9%)
+[2026-07-01T00:50:19.271830] Session 51a0c40054e4: [Camera A] Processed 700/1252 frames (55.9%)
+[2026-07-01T00:50:20.950517] Session 51a0c40054e4: [Camera A] Processed 800/1252 frames (63.9%)
+[2026-07-01T00:50:22.601449] Session 51a0c40054e4: [Camera A] Processed 900/1252 frames (71.9%)
+[2026-07-01T00:50:24.349513] Session 51a0c40054e4: [Camera A] Processed 1000/1252 frames (79.9%)
+[2026-07-01T00:50:26.275293] Session 51a0c40054e4: [Camera A] Processed 1100/1252 frames (87.9%)
+[2026-07-01T00:50:28.217087] Session 51a0c40054e4: [Camera A] Processed 1200/1252 frames (95.8%)
+[2026-07-01T00:50:29.139543] Session 51a0c40054e4: [Camera A] Finished processing 1252 frames.
+[2026-07-01T00:50:29.176833] Session 51a0c40054e4: [Camera B] Processing 308 frames...
+[2026-07-01T00:50:35.677440] Session 51a0c40054e4: [Camera B] Processed 100/308 frames (32.5%)
+[2026-07-01T00:50:44.983123] Session 51a0c40054e4: [Camera B] Processed 200/308 frames (64.9%)
+[2026-07-01T00:50:54.101395] Session 51a0c40054e4: [Camera B] Processed 300/308 frames (97.4%)
+[2026-07-01T00:50:54.864734] Session 51a0c40054e4: [Camera B] Finished processing 308 frames.
+[2026-07-01T00:50:54.865086] Session 51a0c40054e4: Candidate detection complete, starting 2D tracking...
+[2026-07-01T00:51:00.730504] Session 51a0c40054e4: 2D tracking complete. Track A: 19 pts, Track B: 19 pts.
+[2026-07-01T00:51:00.730733] Session 51a0c40054e4: Starting 3D triangulation...
+[2026-07-01T00:51:00.733265] Session 51a0c40054e4: Triangulated 0 points in 3D.
+[2026-07-01T00:51:00.733424] Session 51a0c40054e4: Too few 3D points to fit model.

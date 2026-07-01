@@ -66,7 +66,7 @@ def detect_ball_candidates(frame: np.ndarray, background_model: np.ndarray | Non
     for contour in contours:
         area = cv2.contourArea(contour)
         # Ignore extremely small noise or overly large shapes
-        if area < 3 or area > 5000:
+        if area < 12 or area > 5000:
             continue
 
         # Get enclosing circle parameters

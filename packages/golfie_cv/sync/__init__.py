@@ -11,13 +11,41 @@ import matplotlib.pyplot as plt
 
 from golfie_core.schemas import SyncResult, SyncMethod
 
+def _find_ffmpeg_fallback() -> str | None:
+    import shutil
+    import os
+    import glob
+    
+    # 1. Check if already in PATH
+    if shutil.which("ffmpeg"):
+        return "ffmpeg"
+        
+    # 2. Check Overwolf extensions (contains Obs ffmpeg version 7.0.2)
+    try:
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            pattern = os.path.join(local_app_data, "Overwolf", "**", "ffmpeg.exe")
+            matches = glob.glob(pattern, recursive=True)
+            if matches:
+                ffmpeg_path = matches[0]
+                ffmpeg_dir = os.path.dirname(ffmpeg_path)
+                # Add OBS bin directory to PATH so ffmpeg can load avcodec.dll, avformat.dll, etc.
+                os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
+                return ffmpeg_path
+    except Exception:
+        pass
+        
+    return None
+
+
 def _extract_audio(video_path: Path, output_wav_path: Path) -> bool:
     """Extract mono audio from video file to WAV using ffmpeg."""
-    if not shutil.which("ffmpeg"):
+    ffmpeg_bin = _find_ffmpeg_fallback()
+    if not ffmpeg_bin:
         return False
     
     cmd = [
-        "ffmpeg", "-y", "-loglevel", "error",
+        ffmpeg_bin, "-y", "-loglevel", "error",
         "-i", str(video_path),
         "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "1",
         str(output_wav_path)
