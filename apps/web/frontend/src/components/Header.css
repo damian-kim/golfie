@@ -2,9 +2,9 @@
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(10, 16, 13, 0.85);
+  background: rgba(8, 12, 16, 0.85);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(76, 194, 115, 0.15);
+  border-bottom: 1px solid rgba(152, 175, 199, 0.15);
 }
 
 .app-header__row {
@@ -17,10 +17,10 @@
 }
 
 .app-header__wordmark {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 0.15em;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: 0.08em;
   color: var(--color-ink);
   display: flex;
   align-items: center;
@@ -49,12 +49,12 @@
 }
 
 .app-header__link {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 11px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
   color: var(--color-muted);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   transition: color 0.15s ease;
   position: relative;
   padding: 4px 0;

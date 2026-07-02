@@ -51,7 +51,7 @@ export function ReviewPage() {
       </div>
 
       <div className="form-grid">
-        <div className="card" style={{ borderColor: "rgba(139, 124, 224, 0.25)" }}>
+        <div className="card" style={{ borderColor: "rgba(139, 124, 224, 0.2)" }}>
           <h2 className="card__title" style={{ color: "var(--color-violet)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>Calibration</span>
             <span className="field__label" style={{ color: "rgba(139, 124, 224, 0.6)", fontSize: "9px" }}>FITTED GEOMETRY</span>
@@ -76,10 +76,10 @@ export function ReviewPage() {
           )}
         </div>
 
-        <div className="card" style={{ borderColor: "rgba(76, 194, 115, 0.25)" }}>
+        <div className="card" style={{ borderColor: "rgba(152, 175, 199, 0.2)" }}>
           <h2 className="card__title" style={{ color: "var(--color-turf-bright)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>Synchronization</span>
-            <span className="field__label" style={{ color: "rgba(76, 194, 115, 0.6)", fontSize: "9px" }}>ESTIMATED ALIGNMENT</span>
+            <span className="field__label" style={{ color: "rgba(152, 175, 199, 0.6)", fontSize: "9px" }}>ESTIMATED ALIGNMENT</span>
           </h2>
           {session.sync ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -110,7 +110,7 @@ export function ReviewPage() {
         </div>
       </div>
 
-      <div className="card" style={{ borderColor: "rgba(255, 255, 255, 0.08)", background: "rgba(10, 16, 13, 0.45)" }}>
+      <div className="card" style={{ borderColor: "var(--color-border)", background: "rgba(8, 12, 16, 0.45)" }}>
         <h2 className="card__title" style={{ color: "var(--color-muted)" }}>Computer Vision Debug Feeds</h2>
         <p className="page__subtitle" style={{ margin: 0, color: "var(--color-muted-dim)" }}>
           Overlay video feeds highlighting impact frames, ball detection regions, and 2D tracking trajectories will stream here in future milestones.

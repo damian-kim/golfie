@@ -33,6 +33,47 @@ class VideoMetadata:
         return self.frame_count / self.fps
 
 
+def _get_ffprobe_fps(path: Path) -> float | None:
+    import shutil
+    import subprocess
+    
+    ffprobe_bin = shutil.which("ffprobe")
+    if not ffprobe_bin:
+        try:
+            from golfie_cv.sync import _find_ffmpeg_fallback
+            ffmpeg_bin = _find_ffmpeg_fallback()
+            if ffmpeg_bin:
+                ffmpeg_path = Path(ffmpeg_bin)
+                ffprobe_sibling = ffmpeg_path.parent / "ffprobe.exe"
+                if ffprobe_sibling.exists():
+                    ffprobe_bin = str(ffprobe_sibling)
+        except Exception:
+            pass
+            
+    if not ffprobe_bin:
+        return None
+        
+    try:
+        cmd = [
+            ffprobe_bin, "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=r_frame_rate",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(path)
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        out = res.stdout.strip()
+        if "/" in out:
+            num, den = map(float, out.split("/"))
+            if den > 0:
+                return num / den
+        else:
+            return float(out)
+    except Exception:
+        pass
+    return None
+
+
 def read_video_metadata(video_path: str | Path) -> VideoMetadata:
     """Open a video file and read its real fps/resolution/frame count.
 
@@ -63,6 +104,10 @@ def read_video_metadata(video_path: str | Path) -> VideoMetadata:
             f"Video opened but reported invalid resolution ({width}x{height}): {path}"
         )
 
+    ffprobe_fps = _get_ffprobe_fps(path)
+    if ffprobe_fps is not None and ffprobe_fps > 0:
+        fps = ffprobe_fps
+
     return VideoMetadata(
         path=str(path),
         fps=float(fps),
@@ -70,6 +115,7 @@ def read_video_metadata(video_path: str | Path) -> VideoMetadata:
         height=height,
         frame_count=frame_count,
     )
+
 
 
 def extract_frame(video_path: str | Path, frame_index: int):

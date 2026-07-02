@@ -64,17 +64,20 @@ export const api = {
     camera: "camera-a" | "camera-b",
     file: File,
     roleHint?: string,
-    deviceModel?: string
+    deviceModel?: string,
+    fpsOverride?: number
   ): Promise<Session> {
     const form = new FormData();
     form.append("file", file);
     if (roleHint) form.append("role_hint", roleHint);
     if (deviceModel) form.append("device_model", deviceModel);
+    if (fpsOverride) form.append("fps_override", fpsOverride.toString());
     return request<Session>(`/sessions/${sessionId}/upload/${camera}`, {
       method: "POST",
       body: form,
     });
   },
+
 
   processSession(sessionId: string): Promise<Session> {
     return request<Session>(`/sessions/${sessionId}/process`, { method: "POST" });

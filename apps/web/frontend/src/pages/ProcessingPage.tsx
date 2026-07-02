@@ -76,7 +76,7 @@ export function ProcessingPage() {
         </div>
       )}
 
-      <div className="card" style={{ maxWidth: 520, background: "rgba(10, 16, 13, 0.85)", borderColor: "rgba(76, 194, 115, 0.2)" }}>
+      <div className="card" style={{ maxWidth: 520, background: "rgba(8, 12, 16, 0.45)", borderColor: "rgba(152, 175, 199, 0.2)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: 10, marginBottom: 12 }}>
           <span className="field__label" style={{ color: "var(--color-muted)" }}>Pipeline Phase</span>
           <span className="field__label" style={{ color: "var(--color-muted)" }}>Telemetry Status</span>

@@ -70,7 +70,7 @@ def calibrate_intrinsics(
                 corners_refined = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
                 img_points.append(corners_refined)
         elif board_type == "charuco":
-            charuco_corners, charuco_ids, _, _ = detector.detect(gray)
+            charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
             if charuco_corners is not None and len(charuco_corners) >= 4:
                 # Get the 3D coordinates of detected ChArUco corners
                 # board.getMatchPrediction (or manually matching charuco_ids to board.getChessboardCorners())
@@ -160,8 +160,8 @@ def calibrate_stereo(
                 img_points_a.append(corners_a)
                 img_points_b.append(corners_b)
         elif board_type == "charuco":
-            charuco_corners_a, charuco_ids_a, _, _ = detector.detect(gray_a)
-            charuco_corners_b, charuco_ids_b, _, _ = detector.detect(gray_b)
+            charuco_corners_a, charuco_ids_a, _, _ = detector.detectBoard(gray_a)
+            charuco_corners_b, charuco_ids_b, _, _ = detector.detectBoard(gray_b)
 
             if (charuco_corners_a is not None and len(charuco_corners_a) >= 4 and
                     charuco_corners_b is not None and len(charuco_corners_b) >= 4):

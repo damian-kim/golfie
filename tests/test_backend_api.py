@@ -280,3 +280,18 @@ def test_calibration_endpoints(client, tmp_path, monkeypatch):
     assert session_resp.json()["calibration"]["reprojection_error_px"] == 0.15
 
 
+def test_camera_upload_with_fps_override(client, sample_clip):
+    session = client.post("/sessions", json={}).json()
+    sid = session["session_id"]
+    with open(sample_clip, "rb") as f:
+        resp = client.post(
+            f"/sessions/{sid}/upload/camera-a",
+            files={"file": ("a.mp4", f, "video/mp4")},
+            data={"fps_override": "240.0"}
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["camera_a"]["fps"] == 240.0
+
+
+

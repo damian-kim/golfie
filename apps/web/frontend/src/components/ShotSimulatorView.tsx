@@ -96,6 +96,51 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
           <MetricCard label="Side deviation" metric={metrics.side_deviation_m} unit="yd" format={formatMetric} />
         </div>
       </div>
+
+      {/* Visual Telemetry Radar Widget */}
+      <div className="hud-radar-widget">
+        <div className="hud-radar-header">LAUNCH RADAR</div>
+        <svg viewBox="0 0 100 100" className="hud-radar-svg">
+          {/* Outer Ring */}
+          <circle cx="50" cy="50" r="45" stroke="var(--hud-border)" strokeWidth="1" fill="rgba(10, 16, 13, 0.4)" />
+          {/* Inner Grid Rings */}
+          <circle cx="50" cy="50" r="30" stroke="rgba(255, 255, 255, 0.05)" strokeWidth="1" strokeDasharray="3 3" fill="none" />
+          <circle cx="50" cy="50" r="15" stroke="rgba(255, 255, 255, 0.03)" strokeWidth="1" fill="none" />
+          
+          {/* Crosshairs */}
+          <line x1="50" y1="5" x2="50" y2="95" stroke="rgba(255, 255, 255, 0.08)" strokeWidth="0.8" />
+          <line x1="5" y1="50" x2="95" y2="50" stroke="rgba(255, 255, 255, 0.08)" strokeWidth="0.8" />
+          
+          {/* 45-deg Guidelines */}
+          <line x1="18.2" y1="18.2" x2="81.8" y2="81.8" stroke="rgba(255, 255, 255, 0.03)" strokeWidth="0.6" strokeDasharray="1 3" />
+          <line x1="18.2" y1="81.8" x2="81.8" y2="18.2" stroke="rgba(255, 255, 255, 0.03)" strokeWidth="0.6" strokeDasharray="1 3" />
+          
+          {/* Direction Indicator Line */}
+          {metrics.horizontal_launch_deg?.value !== null && (
+            <g>
+              <line 
+                x1="50" 
+                y1="50" 
+                x2={50 + 38 * Math.sin(((metrics.horizontal_launch_deg.value || 0)) * Math.PI / 180)} 
+                y2={50 - 38 * Math.cos(((metrics.horizontal_launch_deg.value || 0)) * Math.PI / 180)} 
+                stroke="var(--color-turf-bright)" 
+                strokeWidth="2.5" 
+                strokeLinecap="round"
+              />
+              <circle 
+                cx={50 + 38 * Math.sin(((metrics.horizontal_launch_deg.value || 0)) * Math.PI / 180)} 
+                cy={50 - 38 * Math.cos(((metrics.horizontal_launch_deg.value || 0)) * Math.PI / 180)} 
+                r="3.5" 
+                fill="var(--color-turf-bright)"
+              />
+            </g>
+          )}
+        </svg>
+        <div className="hud-radar-footer mono">
+          <div>DIR: {metrics.horizontal_launch_deg?.value !== null ? `${(metrics.horizontal_launch_deg.value || 0).toFixed(1)}°` : "N/A"}</div>
+          <div>LA: {metrics.launch_angle_deg?.value !== null ? `${(metrics.launch_angle_deg.value || 0).toFixed(1)}°` : "N/A"}</div>
+        </div>
+      </div>
     </div>
   );
 }

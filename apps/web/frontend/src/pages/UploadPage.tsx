@@ -14,6 +14,8 @@ export function UploadPage() {
   const [fileB, setFileB] = useState<File | null>(null);
   const [roleA, setRoleA] = useState<"down_the_line" | "face_on">("down_the_line");
   const [roleB, setRoleB] = useState<"down_the_line" | "face_on">("face_on");
+  const [fpsA, setFpsA] = useState<string>("");
+  const [fpsB, setFpsB] = useState<string>("");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,10 +45,24 @@ export function UploadPage() {
       });
 
       setStep("Uploading camera A video…");
-      await api.uploadCamera(session.session_id, "camera-a", fileA, roleA);
+      await api.uploadCamera(
+        session.session_id,
+        "camera-a",
+        fileA,
+        roleA,
+        undefined,
+        fpsA ? parseFloat(fpsA) : undefined
+      );
 
       setStep("Uploading camera B video…");
-      await api.uploadCamera(session.session_id, "camera-b", fileB, roleB);
+      await api.uploadCamera(
+        session.session_id,
+        "camera-b",
+        fileB,
+        roleB,
+        undefined,
+        fpsB ? parseFloat(fpsB) : undefined
+      );
 
       navigate(`/sessions/${session.session_id}/processing`);
     } catch (err) {
@@ -137,6 +153,8 @@ export function UploadPage() {
             onFile={setFileA}
             role={roleA}
             onRole={setRoleA}
+            fps={fpsA}
+            onFps={setFpsA}
           />
           <CameraUploadCard
             label="Camera B"
@@ -144,12 +162,17 @@ export function UploadPage() {
             onFile={setFileB}
             role={roleB}
             onRole={setRoleB}
+            fps={fpsB}
+            onFps={setFpsB}
           />
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <button type="submit" className="primary-button" disabled={!canSubmit}>
             {busy ? "Uploading…" : "Create session & upload"}
+          </button>
+          <button type="button" className="primary-button" style={{ borderColor: "var(--color-muted-dim)" }} onClick={() => navigate("/")} disabled={busy}>
+            Cancel
           </button>
           {step && <span className="page__subtitle" style={{ color: "var(--color-turf-bright)" }}>{step}</span>}
         </div>
@@ -164,30 +187,62 @@ function CameraUploadCard({
   onFile,
   role,
   onRole,
+  fps,
+  onFps,
 }: {
   label: string;
   file: File | null;
   onFile: (f: File | null) => void;
   role: "down_the_line" | "face_on";
   onRole: (r: "down_the_line" | "face_on") => void;
+  fps: string;
+  onFps: (f: string) => void;
 }) {
   return (
     <div className="card">
       <h2 className="card__title">{label}</h2>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <label className="field">
+        <div className="field">
           <span className="field__label">Video file</span>
-          <input
-            type="file"
-            accept="video/*"
-            onChange={(e) => onFile(e.target.files?.[0] ?? null)}
-          />
-        </label>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <label className="primary-button" style={{ 
+              display: "inline-block", 
+              cursor: "pointer", 
+              fontSize: "12px", 
+              padding: "8px 12px",
+              background: file ? "rgba(232, 162, 58, 0.08)" : "transparent",
+              borderColor: file ? "var(--color-amber)" : "var(--color-border)",
+              color: file ? "var(--color-amber)" : "var(--color-muted)",
+              borderRadius: "var(--radius-sm)"
+            }}>
+              {file ? "Change File" : "Choose File…"}
+              <input
+                type="file"
+                accept="video/*"
+                onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+                style={{ display: "none" }}
+              />
+            </label>
+            <span style={{ fontSize: "12px", color: file ? "var(--color-ink)" : "var(--color-muted-dim)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", flex: 1 }}>
+              {file ? file.name : "No file selected"}
+            </span>
+          </div>
+        </div>
         <label className="field">
           <span className="field__label">Placement</span>
           <select value={role} onChange={(e) => onRole(e.target.value as "down_the_line" | "face_on")}>
             <option value="down_the_line">Down-the-line</option>
             <option value="face_on">Face-on / diagonal</option>
+          </select>
+        </label>
+        <label className="field">
+          <span className="field__label">Frame Rate / Speed</span>
+          <select value={fps} onChange={(e) => onFps(e.target.value)}>
+            <option value="">Auto-detect (recommended)</option>
+            <option value="240">240 fps (Slow-Motion)</option>
+            <option value="120">120 fps (Slow-Motion)</option>
+            <option value="60">60 fps</option>
+            <option value="30">30 fps (Normal)</option>
           </select>
         </label>
         {file && (

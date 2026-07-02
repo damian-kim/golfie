@@ -60,3 +60,6 @@ def sample_trajectory() -> dict:
             ),
         )
     return json.loads(sample_path.read_text())
+
+# Trigger reload
+

@@ -2,16 +2,17 @@
 name: Golfie
 description: Immersive telemetry HUD and 3D flight simulator
 colors:
-  bg: "#0b1410"
-  surface: "#121c16"
-  border: "#25382c"
-  turf-bright: "#4cc273"
-  amber: "#e8a23a"
-  violet: "#8b7ce0"
-  ink: "#edf2ee"
-  muted: "#7c8f84"
-  hud-bg: "rgba(10, 16, 13, 0.72)"
-  hud-border: "rgba(76, 194, 115, 0.25)"
+  bg: "#0d0e11"
+  surface: "#14161a"
+  border: "#23272f"
+  slate-blue: "#98afc7"
+  sand: "#d1b89d"
+  violet: "#a79fcb"
+  danger: "#e27c7c"
+  ink: "#f8fafc"
+  muted: "#64748b"
+  hud-bg: "rgba(20, 22, 26, 0.72)"
+  hud-border: "rgba(152, 175, 199, 0.2)"
 typography:
   display:
     fontFamily: "Manrope, system-ui, sans-serif"

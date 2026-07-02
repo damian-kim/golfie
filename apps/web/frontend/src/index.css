@@ -1,37 +1,37 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 :root {
-  /* Color tokens -- dark indoor-bay / launch-monitor palette.
-     Grounded in the subject: turf green + the amber of a practice
-     range ball + the cool dark of an evening hitting bay. */
-  --color-bg: #0b1410;
-  --color-surface: #121c16;
-  --color-surface-raised: #182a20;
-  --color-border: #25382c;
-  --color-turf: #2e7d4f;
-  --color-turf-bright: #4cc273;
-  --color-amber: #e8a23a;
-  --color-danger: #e2574c;
-  --color-violet: #8b7ce0;
-  --color-ink: #edf2ee;
-  --color-muted: #7c8f84;
-  --color-muted-dim: #4f6157;
+  /* Color tokens -- dark charcoal / slate-blue palette. */
+  --color-bg: #0d0e11;
+  --color-surface: #14161a;
+  --color-surface-raised: #1b1e24;
+  --color-border: #23272f; /* dark gray border */
+  --color-turf: #4b6584;
+  --color-turf-bright: #98afc7;
+  --color-amber: #d1b89d; /* soft sand/gold */
+  --color-danger: #e27c7c; /* soft danger */
+  --color-violet: #a79fcb;
+  --color-ink: #f8fafc;
+  --color-muted: #64748b; /* slate gray */
+  --color-muted-dim: #475569;
 
-  --font-display: "Manrope", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --font-display: "Outfit", "Manrope", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Space Mono", monospace;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
 
   /* Fishing Planet / OCI Gaming HUD style variables */
-  --hud-bg: rgba(10, 16, 13, 0.72);
-  --hud-bg-hover: rgba(20, 32, 26, 0.85);
-  --hud-border: rgba(76, 194, 115, 0.25);
+  --hud-bg: rgba(20, 22, 26, 0.72);
+  --hud-bg-hover: rgba(27, 30, 36, 0.85);
+  --hud-border: rgba(152, 175, 199, 0.2);
   --hud-border-active: var(--color-turf-bright);
-  --hud-glow-green: #4cc273;
-  --hud-glow-amber: #e8a23a;
-  --hud-glow-violet: #8b7ce0;
-  --hud-text-shadow: 0 0 10px rgba(76, 194, 115, 0.5);
-  --hud-box-shadow: 0 10px 40px rgba(0, 0, 0, 0.65), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --hud-glow-green: #98afc7;
+  --hud-glow-amber: #d1b89d;
+  --hud-glow-violet: #a79fcb;
+  --hud-text-shadow: none; /* remove all neon text shadows */
+  --hud-box-shadow: 0 10px 40px rgba(0, 0, 0, 0.50), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
 * {
@@ -45,7 +45,7 @@ body {
 }
 
 body {
-  background: radial-gradient(ellipse at top, #142019 0%, var(--color-bg) 55%);
+  background: radial-gradient(ellipse at top, #14171f 0%, var(--color-bg) 75%);
   color: var(--color-ink);
   font-family: var(--font-display);
   -webkit-font-smoothing: antialiased;

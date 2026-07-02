@@ -78,7 +78,7 @@ function CalibrationDiagram({ boardType }: { boardType: "charuco" | "chessboard"
   
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
-      <svg viewBox="0 0 240 180" style={{ width: "100%", height: "auto", background: "rgba(10, 16, 13, 0.4)", borderRadius: "8px", border: "1px solid rgba(76, 194, 115, 0.15)", padding: "10px" }}>
+      <svg viewBox="0 0 240 180" style={{ width: "100%", height: "auto", background: "rgba(10, 16, 13, 0.4)", borderRadius: "var(--radius-md)", border: "1px solid rgba(76, 194, 115, 0.15)", padding: "10px" }}>
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-turf-bright)" />
@@ -374,7 +374,7 @@ export function CalibratePage() {
                           background: boardType === "charuco" ? "rgba(76, 194, 115, 0.12)" : "rgba(10, 16, 13, 0.85)",
                           border: boardType === "charuco" ? "1px solid var(--color-turf-bright)" : "1px solid var(--color-border)",
                           color: boardType === "charuco" ? "var(--color-turf-bright)" : "var(--color-muted)",
-                          borderRadius: "4px",
+                          borderRadius: "var(--radius-sm)",
                           fontWeight: "bold",
                           cursor: "pointer",
                           transition: "all 0.15s ease",
@@ -395,7 +395,7 @@ export function CalibratePage() {
                           background: boardType === "chessboard" ? "rgba(76, 194, 115, 0.12)" : "rgba(10, 16, 13, 0.85)",
                           border: boardType === "chessboard" ? "1px solid var(--color-turf-bright)" : "1px solid var(--color-border)",
                           color: boardType === "chessboard" ? "var(--color-turf-bright)" : "var(--color-muted)",
-                          borderRadius: "4px",
+                          borderRadius: "var(--radius-sm)",
                           fontWeight: "bold",
                           cursor: "pointer",
                           transition: "all 0.15s ease",
@@ -482,7 +482,7 @@ export function CalibratePage() {
                               background: markerMode === "ratio" ? "rgba(76, 194, 115, 0.08)" : "rgba(10, 16, 13, 0.85)",
                               border: markerMode === "ratio" ? "1px solid var(--color-turf-bright)" : "1px solid var(--color-border)",
                               color: markerMode === "ratio" ? "var(--color-turf-bright)" : "var(--color-muted)",
-                              borderRadius: "4px",
+                              borderRadius: "var(--radius-sm)",
                               fontWeight: "600",
                               cursor: "pointer",
                               transition: "all 0.15s ease",
@@ -501,7 +501,7 @@ export function CalibratePage() {
                               background: markerMode === "custom" ? "rgba(76, 194, 115, 0.08)" : "rgba(10, 16, 13, 0.85)",
                               border: markerMode === "custom" ? "1px solid var(--color-turf-bright)" : "1px solid var(--color-border)",
                               color: markerMode === "custom" ? "var(--color-turf-bright)" : "var(--color-muted)",
-                              borderRadius: "4px",
+                              borderRadius: "var(--radius-sm)",
                               fontWeight: "600",
                               cursor: "pointer",
                               transition: "all 0.15s ease",

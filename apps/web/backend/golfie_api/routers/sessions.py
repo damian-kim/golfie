@@ -78,7 +78,12 @@ def get_session(session_id: str) -> Session:
 
 
 async def _save_upload_and_build_capture(
-    session_id: str, camera_id: str, file: UploadFile, role_hint: Optional[str], device_model: Optional[str]
+    session_id: str,
+    camera_id: str,
+    file: UploadFile,
+    role_hint: Optional[str],
+    device_model: Optional[str],
+    fps_override: Optional[float] = None,
 ) -> CameraCapture:
     session_dir = session_store.session_dir(session_id)
     session_dir.mkdir(parents=True, exist_ok=True)
@@ -101,7 +106,7 @@ async def _save_upload_and_build_capture(
     return CameraCapture(
         camera_id=camera_id,
         device_model=device_model,
-        fps=meta.fps,
+        fps=fps_override if fps_override is not None else meta.fps,
         resolution=(meta.width, meta.height),
         video_path=str(dest_path),
         role_hint=role_hint,
@@ -114,10 +119,11 @@ async def upload_camera_a(
     file: UploadFile = File(...),
     role_hint: Optional[str] = Form(default=None),
     device_model: Optional[str] = Form(default=None),
+    fps_override: Optional[float] = Form(default=None),
 ) -> Session:
     session = _get_session_or_404(session_id)
     session.camera_a = await _save_upload_and_build_capture(
-        session_id, "camera_a", file, role_hint, device_model
+        session_id, "camera_a", file, role_hint, device_model, fps_override
     )
     session_store.save(session)
     return session
@@ -129,13 +135,15 @@ async def upload_camera_b(
     file: UploadFile = File(...),
     role_hint: Optional[str] = Form(default=None),
     device_model: Optional[str] = Form(default=None),
+    fps_override: Optional[float] = Form(default=None),
 ) -> Session:
     session = _get_session_or_404(session_id)
     session.camera_b = await _save_upload_and_build_capture(
-        session_id, "camera_b", file, role_hint, device_model
+        session_id, "camera_b", file, role_hint, device_model, fps_override
     )
     session_store.save(session)
     return session
+
 
 
 @router.post("/{session_id}/calibration", response_model=Session)

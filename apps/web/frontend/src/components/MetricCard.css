@@ -27,7 +27,11 @@
 
 /* Source-based color rules */
 .metric-card--measured {
-  border-left: 3px solid var(--hud-glow-amber);
+  border-color: rgba(232, 162, 58, 0.25);
+}
+.metric-card--measured:hover {
+  border-color: var(--hud-glow-amber);
+  box-shadow: 0 0 12px rgba(232, 162, 58, 0.2), var(--hud-box-shadow);
 }
 .metric-card--measured .metric-card__value {
   color: var(--hud-glow-amber);
@@ -40,7 +44,12 @@
 
 .metric-card--estimated,
 .metric-card--experimental {
-  border-left: 3px solid var(--hud-glow-green);
+  border-color: rgba(76, 194, 115, 0.25);
+}
+.metric-card--estimated:hover,
+.metric-card--experimental:hover {
+  border-color: var(--hud-glow-green);
+  box-shadow: 0 0 12px rgba(76, 194, 115, 0.2), var(--hud-box-shadow);
 }
 .metric-card--estimated .metric-card__value,
 .metric-card--experimental .metric-card__value {
@@ -54,7 +63,11 @@
 }
 
 .metric-card--fitted {
-  border-left: 3px solid var(--hud-glow-violet);
+  border-color: rgba(139, 124, 224, 0.25);
+}
+.metric-card--fitted:hover {
+  border-color: var(--hud-glow-violet);
+  box-shadow: 0 0 12px rgba(139, 124, 224, 0.2), var(--hud-box-shadow);
 }
 .metric-card--fitted .metric-card__value {
   color: var(--hud-glow-violet);
