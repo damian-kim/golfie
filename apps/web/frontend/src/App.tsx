@@ -6,6 +6,7 @@ import { ReviewPage } from "./pages/ReviewPage";
 import { SimulatorPage } from "./pages/SimulatorPage";
 import { DemoPage } from "./pages/DemoPage";
 import { CalibratePage } from "./pages/CalibratePage";
+import { CoursePage } from "./pages/CoursePage";
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
         <Route path="/" element={<UploadPage />} />
         <Route path="/demo" element={<DemoPage />} />
         <Route path="/calibrate" element={<CalibratePage />} />
+        <Route path="/course" element={<CoursePage />} />
         <Route path="/sessions/:sessionId/processing" element={<ProcessingPage />} />
         <Route path="/sessions/:sessionId/review" element={<ReviewPage />} />
         <Route path="/sessions/:sessionId/simulator" element={<SimulatorPage />} />

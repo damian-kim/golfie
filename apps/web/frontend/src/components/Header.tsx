@@ -5,6 +5,7 @@ const STEPS: { path: string; label: string }[] = [
   { path: "/", label: "Upload" },
   { path: "/calibrate", label: "Calibrate" },
   { path: "/demo", label: "Demo range" },
+  { path: "/course", label: "Course Map" },
 ];
 
 export function Header() {

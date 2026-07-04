@@ -139,3 +139,6 @@ def extract_frame(video_path: str | Path, frame_index: int):
         return frame
     finally:
         cap.release()
+
+from golfie_cv.video.cfr_transcoder import ensure_constant_frame_rate
+

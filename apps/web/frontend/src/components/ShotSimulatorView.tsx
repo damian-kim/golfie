@@ -1,7 +1,9 @@
+import { useState } from "react";
 import type { TrajectoryPayload } from "../lib/types";
 import { MetricCard } from "./MetricCard";
 import { formatMetric } from "../lib/units";
 import { DrivingRangeScene } from "../scenes/DrivingRangeScene";
+import { API_BASE_URL } from "../lib/api";
 import "./ShotSimulatorView.css";
 
 interface ShotSimulatorViewProps {
@@ -12,6 +14,30 @@ interface ShotSimulatorViewProps {
 
 export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorViewProps) {
   const { metrics } = payload;
+  const [showPrecursor, setShowPrecursor] = useState(payload.session_id !== "sample");
+  const [playToken, setPlayToken] = useState(0);
+
+  const videoAUrl = `${API_BASE_URL}/sessions/${payload.session_id}/video/camera_a/stripped`;
+  const videoBUrl = `${API_BASE_URL}/sessions/${payload.session_id}/video/camera_b/stripped`;
+
+  const handleVideoEnded = () => {
+    setShowPrecursor(false);
+    setPlayToken((t) => t + 1);
+  };
+
+  const handleSkip = () => {
+    setShowPrecursor(false);
+    setPlayToken((t) => t + 1);
+  };
+
+  const handleReplayClick = () => {
+    if (payload.session_id !== "sample") {
+      setShowPrecursor(true);
+    } else {
+      setPlayToken((t) => t + 1);
+    }
+  };
+
   return (
     <div className="shot-simulator-hud">
       {/* Immersive Full-Screen Canvas behind the HUD overlay */}
@@ -20,6 +46,8 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
           simulated={payload.simulated_trajectory}
           measured={payload.measured_points}
           fitted={payload.fitted_points}
+          playToken={playToken}
+          onReplayClick={handleReplayClick}
         />
       </div>
 
@@ -78,6 +106,28 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
             </div>
           </div>
         </div>
+
+        {payload.session_id !== "sample" && (
+          <div className="hud-section" style={{ marginTop: "8px" }}>
+            <button 
+              className="primary-button" 
+              style={{
+                width: "100%",
+                padding: "8px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                background: "rgba(76, 194, 115, 0.12)",
+                borderColor: "rgba(76, 194, 115, 0.4)",
+                color: "#ffffff"
+              }}
+              onClick={handleReplayClick}
+            >
+              <span>🎥 Replay Swing Outlines</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Right Telemetry Panel */}
@@ -141,6 +191,56 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
           <div>LA: {metrics.launch_angle_deg?.value !== null ? `${(metrics.launch_angle_deg.value || 0).toFixed(1)}°` : "N/A"}</div>
         </div>
       </div>
+
+      {/* Precursor Outlines Replay Overlay */}
+      {showPrecursor && (
+        <div className="shot-simulator-precursor">
+          <div className="precursor-overlay__content">
+            <div className="precursor-header">
+              <div className="precursor-header__title">Swing Motion Outlines</div>
+              <div className="precursor-header__subtitle mono">YOLOv8 DETECTED SWING PATHS</div>
+            </div>
+            
+            <div className="precursor-videos">
+              <div className="precursor-video-wrapper camera-a">
+                <div className="precursor-video-label">CAMERA A · DOWN-THE-LINE</div>
+                <video 
+                  src={videoAUrl} 
+                  autoPlay 
+                  muted 
+                  playsInline
+                  onEnded={handleVideoEnded}
+                  onError={handleSkip}
+                  className="precursor-video"
+                />
+              </div>
+              <div className="precursor-video-wrapper camera-b">
+                <div className="precursor-video-label">CAMERA B · FACE-ON</div>
+                <video 
+                  src={videoBUrl} 
+                  autoPlay 
+                  muted 
+                  playsInline
+                  onError={handleSkip}
+                  className="precursor-video"
+                />
+              </div>
+            </div>
+
+            <div className="precursor-footer">
+              <div className="precursor-progress-bar">
+                <div className="precursor-progress-fill" style={{ animationDuration: '5s' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                <span className="precursor-telemetry mono">SWING SYNC PATTERNS ACTIVE ... 100%</span>
+                <button className="precursor-skip-btn" onClick={handleSkip}>
+                  SKIP REPLAY & FLY →
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

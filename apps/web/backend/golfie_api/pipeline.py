@@ -71,6 +71,38 @@ def run_real_processing(session: Session) -> ShotResult:
 
     log_progress("Starting real processing pipeline", ProcessingStage.DETECTING_IMPACT)
 
+    from golfie_cv.detection import detect_relevant_window, render_stripped_outlines_video
+    from golfie_cv.video import read_video_metadata, ensure_constant_frame_rate
+
+    session_dir = session_store.session_dir(session.session_id)
+    cfr_path_a = session_dir / "camera_a_cfr.mp4"
+    cfr_path_b = session_dir / "camera_b_cfr.mp4"
+
+    log_progress("Transcoding Camera A to constant 240 FPS CFR...")
+    try:
+        ensure_constant_frame_rate(session.camera_a.video_path, cfr_path_a, target_fps=240.0)
+    except Exception as e:
+        log_progress(f"Transcoding Camera A failed: {e}")
+        raise PipelineError(f"CFR Transcoding failed: {e}")
+
+    log_progress("Transcoding Camera B to constant 240 FPS CFR...")
+    try:
+        ensure_constant_frame_rate(session.camera_b.video_path, cfr_path_b, target_fps=240.0)
+    except Exception as e:
+        log_progress(f"Transcoding Camera B failed: {e}")
+        raise PipelineError(f"CFR Transcoding failed: {e}")
+
+    meta_a = read_video_metadata(cfr_path_a)
+    meta_b = read_video_metadata(cfr_path_b)
+
+    log_progress("Detecting relevant window for Camera A...")
+    start_frame_a, end_frame_a, impact_a = detect_relevant_window(cfr_path_a, meta_a.fps, meta_a.frame_count)
+    log_progress(f"Camera A relevant window: {start_frame_a} to {end_frame_a} (impact: {impact_a:.2f}s)")
+
+    log_progress("Detecting relevant window for Camera B...")
+    start_frame_b, end_frame_b, impact_b = detect_relevant_window(cfr_path_b, meta_b.fps, meta_b.frame_count)
+    log_progress(f"Camera B relevant window: {start_frame_b} to {end_frame_b} (impact: {impact_b:.2f}s)")
+
     def read_initial_frames(path, count=20):
         cap = cv2.VideoCapture(str(path))
         if not cap.isOpened():
@@ -89,9 +121,9 @@ def run_real_processing(session: Session) -> ShotResult:
 
     try:
         log_progress("Reading initial background frames for Camera A...")
-        initial_frames_a = read_initial_frames(session.camera_a.video_path, 20)
+        initial_frames_a = read_initial_frames(cfr_path_a, 20)
         log_progress("Reading initial background frames for Camera B...")
-        initial_frames_b = read_initial_frames(session.camera_b.video_path, 20)
+        initial_frames_b = read_initial_frames(cfr_path_b, 20)
     except Exception as e:
         log_progress(f"OOM or error reading initial frames: {e}")
         raise PipelineError(f"Error reading video frames: {e}")
@@ -115,20 +147,21 @@ def run_real_processing(session: Session) -> ShotResult:
 
     log_progress("Background modeling complete, starting candidate detection...", ProcessingStage.DETECTING_BALL)
 
-    # 2. Candidate Detection (streaming)
-    def detect_candidates_stream(path, bg_model, label="Camera"):
+    # 2. Candidate Detection (streaming, cropped to relevant window)
+    def detect_candidates_stream(path, bg_model, start_frame, end_frame, label="Camera"):
         cap = cv2.VideoCapture(str(path))
         if not cap.isOpened():
             cap.release()
             raise PipelineError(f"Could not open video file: {path}")
         
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        log_progress(f"[{label}] Processing {total_frames} frames...")
+        total_frames = end_frame - start_frame
+        log_progress(f"[{label}] Processing {total_frames} frames (from frame {start_frame} to {end_frame})...")
         
         candidates = []
         try:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
             frame_idx = 0
-            while True:
+            while frame_idx < total_frames:
                 ok, frame = cap.read()
                 if not ok or frame is None:
                     break
@@ -142,8 +175,8 @@ def run_real_processing(session: Session) -> ShotResult:
         return candidates
 
     try:
-        candidates_a = detect_candidates_stream(session.camera_a.video_path, bg_a, "Camera A")
-        candidates_b = detect_candidates_stream(session.camera_b.video_path, bg_b, "Camera B")
+        candidates_a = detect_candidates_stream(cfr_path_a, bg_a, start_frame_a, end_frame_a, "Camera A")
+        candidates_b = detect_candidates_stream(cfr_path_b, bg_b, start_frame_b, end_frame_b, "Camera B")
     except Exception as e:
         log_progress(f"Error in candidate detection loop: {e}")
         raise PipelineError(f"Error processing video frames: {e}")
@@ -153,6 +186,28 @@ def run_real_processing(session: Session) -> ShotResult:
     # 3. 2D Tracking
     track_a = track_ball_2d(candidates_a, fps_a)
     track_b = track_ball_2d(candidates_b, fps_b)
+
+    # Convert relative indices back to absolute indices
+    track_a = [
+        TrackedPoint2D(
+            frame_index=pt.frame_index + start_frame_a,
+            time_seconds=(pt.frame_index + start_frame_a) / fps_a,
+            x_px=pt.x_px,
+            y_px=pt.y_px,
+            confidence=pt.confidence,
+        )
+        for pt in track_a
+    ]
+    track_b = [
+        TrackedPoint2D(
+            frame_index=pt.frame_index + start_frame_b,
+            time_seconds=(pt.frame_index + start_frame_b) / fps_b,
+            x_px=pt.x_px,
+            y_px=pt.y_px,
+            confidence=pt.confidence,
+        )
+        for pt in track_b
+    ]
 
     log_progress(f"2D tracking complete. Track A: {len(track_a)} pts, Track B: {len(track_b)} pts.")
 
@@ -314,6 +369,33 @@ def run_real_processing(session: Session) -> ShotResult:
 
     log_progress(f"Processing complete! Carry: {full_flight.carry_m:.2f} m.")
 
+    log_progress("Rendering stripped outlines video for Camera A...", ProcessingStage.RENDERING)
+    session_dir = session_store.session_dir(session.session_id)
+    try:
+        render_stripped_outlines_video(
+            video_path=cfr_path_a,
+            start_frame=start_frame_a,
+            end_frame=end_frame_a,
+            output_path=session_dir / "camera_a_stripped.mp4",
+            background_model=bg_a,
+            ball_track_2d=track_a
+        )
+    except Exception as e:
+        log_progress(f"Failed to render outlines video for Camera A: {e}")
+
+    log_progress("Rendering stripped outlines video for Camera B...")
+    try:
+        render_stripped_outlines_video(
+            video_path=cfr_path_b,
+            start_frame=start_frame_b,
+            end_frame=end_frame_b,
+            output_path=session_dir / "camera_b_stripped.mp4",
+            background_model=bg_b,
+            ball_track_2d=track_b
+        )
+    except Exception as e:
+        log_progress(f"Failed to render outlines video for Camera B: {e}")
+
     return ShotResult(
         metrics=metrics,
         measured_points_3d=measured_3d,
@@ -360,6 +442,67 @@ def advance_through_placeholder_stages(session: Session) -> Session:
         # Quickly cycle stages for placeholder/simulated data
         session.stage = ProcessingStage.DETECTING_IMPACT
         session_store.save(session)
+        
+        # Detect relevant window and render outlines if videos are available
+        if session.camera_a and session.camera_b:
+            import cv2
+            import numpy as np
+            from golfie_cv.detection import detect_relevant_window, render_stripped_outlines_video
+            from golfie_cv.video import read_video_metadata
+
+            try:
+                meta_a = read_video_metadata(session.camera_a.video_path)
+                start_a, end_a, _ = detect_relevant_window(session.camera_a.video_path, meta_a.fps, meta_a.frame_count)
+                
+                meta_b = read_video_metadata(session.camera_b.video_path)
+                start_b, end_b, _ = detect_relevant_window(session.camera_b.video_path, meta_b.fps, meta_b.frame_count)
+                
+                # Build background models
+                cap_a = cv2.VideoCapture(str(session.camera_a.video_path))
+                bg_a = None
+                if cap_a.isOpened():
+                    frames = []
+                    for _ in range(20):
+                        ok, f = cap_a.read()
+                        if ok: frames.append(f)
+                    cap_a.release()
+                    if frames:
+                        bg_a = np.median(frames, axis=0).astype(np.uint8)
+                        
+                cap_b = cv2.VideoCapture(str(session.camera_b.video_path))
+                bg_b = None
+                if cap_b.isOpened():
+                    frames = []
+                    for _ in range(20):
+                        ok, f = cap_b.read()
+                        if ok: frames.append(f)
+                    cap_b.release()
+                    if frames:
+                        bg_b = np.median(frames, axis=0).astype(np.uint8)
+
+                session.stage = ProcessingStage.RENDERING
+                session_store.save(session)
+
+                session_dir = session_store.session_dir(session.session_id)
+                render_stripped_outlines_video(
+                    video_path=session.camera_a.video_path,
+                    start_frame=start_a,
+                    end_frame=end_a,
+                    output_path=session_dir / "camera_a_stripped.mp4",
+                    background_model=bg_a,
+                    ball_track_2d=None
+                )
+                render_stripped_outlines_video(
+                    video_path=session.camera_b.video_path,
+                    start_frame=start_b,
+                    end_frame=end_b,
+                    output_path=session_dir / "camera_b_stripped.mp4",
+                    background_model=bg_b,
+                    ball_track_2d=None
+                )
+            except Exception:
+                pass
+
         session.stage = ProcessingStage.DETECTING_BALL
         session_store.save(session)
         session.stage = ProcessingStage.TRACKING_BALL

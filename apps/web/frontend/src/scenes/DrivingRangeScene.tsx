@@ -12,17 +12,26 @@ interface DrivingRangeSceneProps {
   simulated: ScenePoint[];
   measured?: ScenePoint[];
   fitted?: ScenePoint[];
+  playToken?: number;
+  onReplayClick?: () => void;
 }
 
 type LayerKey = "simulated" | "measured" | "fitted";
 
-export function DrivingRangeScene({ simulated, measured = [], fitted = [] }: DrivingRangeSceneProps) {
+export function DrivingRangeScene({ 
+  simulated, 
+  measured = [], 
+  fitted = [], 
+  playToken: externalPlayToken, 
+  onReplayClick 
+}: DrivingRangeSceneProps) {
   const [visibleLayers, setVisibleLayers] = useState<Record<LayerKey, boolean>>({
     simulated: true,
     measured: true,
     fitted: true,
   });
-  const [playToken, setPlayToken] = useState(0);
+  const [localPlayToken, setLocalPlayToken] = useState(0);
+  const playToken = externalPlayToken !== undefined ? externalPlayToken : localPlayToken;
 
   const bounds = useMemo(
     () => computeSceneBounds([simulated, measured, fitted]),
@@ -61,7 +70,7 @@ export function DrivingRangeScene({ simulated, measured = [], fitted = [] }: Dri
             colorVar="--color-violet"
           />
         </div>
-        <button className="driving-range__replay" onClick={() => setPlayToken((t) => t + 1)}>
+        <button className="driving-range__replay" onClick={onReplayClick || (() => setLocalPlayToken((t) => t + 1))}>
           ▶ Replay shot
         </button>
       </div>

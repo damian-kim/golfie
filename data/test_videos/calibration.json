@@ -1,0 +1,110 @@
+{
+  "coordinate_system": {
+    "origin_in_rig_frame_m": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "target_direction_in_rig_frame": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "up_direction_in_rig_frame": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "alignment_method": "manual"
+  },
+  "camera_a_intrinsics": [
+    [
+      1400.0,
+      0.0,
+      960.0
+    ],
+    [
+      0.0,
+      1400.0,
+      540.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "camera_b_intrinsics": [
+    [
+      1400.0,
+      0.0,
+      960.0
+    ],
+    [
+      0.0,
+      1400.0,
+      540.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "camera_a_extrinsics": [
+    [
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      1
+    ]
+  ],
+  "camera_b_extrinsics": [
+    [
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      0,
+      1.5
+    ],
+    [
+      0,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      1
+    ]
+  ],
+  "reprojection_error_px": 0.01,
+  "confidence": 1.0,
+  "calibration_target": "synthetic",
+  "is_valid": true
+}

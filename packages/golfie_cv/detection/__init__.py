@@ -128,3 +128,8 @@ def build_background_model(pre_impact_frames: list[np.ndarray]) -> np.ndarray:
         raise ValueError("No frames provided for background modeling.")
     # Median along the frames list axis
     return np.median(pre_impact_frames, axis=0).astype(np.uint8)
+
+
+from golfie_cv.detection.relevant_window import detect_relevant_window
+from golfie_cv.detection.yolo_outlines import render_stripped_outlines_video
+

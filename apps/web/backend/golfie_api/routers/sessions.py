@@ -223,3 +223,21 @@ def get_trajectory(session_id: str) -> dict:
             detail="This session has not been processed yet. Call POST /sessions/{id}/process first.",
         )
     return build_trajectory_payload(session.session_id, session.shot, club=session.club)
+
+
+@router.get("/{session_id}/video/{camera_id}/stripped")
+def get_stripped_video(session_id: str, camera_id: str):
+    from fastapi.responses import FileResponse
+    _get_session_or_404(session_id)
+    session_dir = session_store.session_dir(session_id)
+    
+    # Map camera-a/camera-b or camera_a/camera_b to the correct filename
+    cam_name = camera_id.replace("-", "_")
+    video_path = session_dir / f"{cam_name}_stripped.mp4"
+    
+    if not video_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Stripped video not found for {camera_id} in session {session_id}."
+        )
+    return FileResponse(str(video_path), media_type="video/mp4")
