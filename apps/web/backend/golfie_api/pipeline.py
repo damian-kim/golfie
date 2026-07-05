@@ -451,14 +451,22 @@ def advance_through_placeholder_stages(session: Session) -> Session:
             from golfie_cv.video import read_video_metadata
 
             try:
-                meta_a = read_video_metadata(session.camera_a.video_path)
-                start_a, end_a, _ = detect_relevant_window(session.camera_a.video_path, meta_a.fps, meta_a.frame_count)
+                session_dir = session_store.session_dir(session.session_id)
+                cfr_path_a = session_dir / "camera_a_cfr.mp4"
+                cfr_path_b = session_dir / "camera_b_cfr.mp4"
+
+                from golfie_cv.video import ensure_constant_frame_rate
+                ensure_constant_frame_rate(session.camera_a.video_path, cfr_path_a, target_fps=240.0)
+                ensure_constant_frame_rate(session.camera_b.video_path, cfr_path_b, target_fps=240.0)
+
+                meta_a = read_video_metadata(cfr_path_a)
+                start_a, end_a, _ = detect_relevant_window(cfr_path_a, meta_a.fps, meta_a.frame_count)
                 
-                meta_b = read_video_metadata(session.camera_b.video_path)
-                start_b, end_b, _ = detect_relevant_window(session.camera_b.video_path, meta_b.fps, meta_b.frame_count)
+                meta_b = read_video_metadata(cfr_path_b)
+                start_b, end_b, _ = detect_relevant_window(cfr_path_b, meta_b.fps, meta_b.frame_count)
                 
                 # Build background models
-                cap_a = cv2.VideoCapture(str(session.camera_a.video_path))
+                cap_a = cv2.VideoCapture(str(cfr_path_a))
                 bg_a = None
                 if cap_a.isOpened():
                     frames = []
@@ -469,7 +477,7 @@ def advance_through_placeholder_stages(session: Session) -> Session:
                     if frames:
                         bg_a = np.median(frames, axis=0).astype(np.uint8)
                         
-                cap_b = cv2.VideoCapture(str(session.camera_b.video_path))
+                cap_b = cv2.VideoCapture(str(cfr_path_b))
                 bg_b = None
                 if cap_b.isOpened():
                     frames = []
@@ -483,9 +491,8 @@ def advance_through_placeholder_stages(session: Session) -> Session:
                 session.stage = ProcessingStage.RENDERING
                 session_store.save(session)
 
-                session_dir = session_store.session_dir(session.session_id)
                 render_stripped_outlines_video(
-                    video_path=session.camera_a.video_path,
+                    video_path=cfr_path_a,
                     start_frame=start_a,
                     end_frame=end_a,
                     output_path=session_dir / "camera_a_stripped.mp4",
@@ -493,7 +500,7 @@ def advance_through_placeholder_stages(session: Session) -> Session:
                     ball_track_2d=None
                 )
                 render_stripped_outlines_video(
-                    video_path=session.camera_b.video_path,
+                    video_path=cfr_path_b,
                     start_frame=start_b,
                     end_frame=end_b,
                     output_path=session_dir / "camera_b_stripped.mp4",

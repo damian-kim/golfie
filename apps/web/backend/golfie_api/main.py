@@ -6,6 +6,19 @@ Run with:
 
 from __future__ import annotations
 
+import os
+import tempfile
+
+# Force temporary directories to the spacious E: drive to prevent "out of disk space" (C: drive is full)
+os.environ["TEMP"] = r"E:\temp"
+os.environ["TMP"] = r"E:\temp"
+os.environ["TMPDIR"] = r"E:\temp"
+tempfile.tempdir = r"E:\temp"
+try:
+    os.makedirs(r"E:\temp", exist_ok=True)
+except Exception:
+    pass
+
 import json
 
 from fastapi import FastAPI, HTTPException

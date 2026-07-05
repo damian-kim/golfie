@@ -241,3 +241,27 @@ def get_stripped_video(session_id: str, camera_id: str):
             detail=f"Stripped video not found for {camera_id} in session {session_id}."
         )
     return FileResponse(str(video_path), media_type="video/mp4")
+
+
+@router.get("/{session_id}/video/{camera_id}/frame_map")
+def get_frame_map(session_id: str, camera_id: str) -> dict:
+    _get_session_or_404(session_id)
+    session_dir = session_store.session_dir(session_id)
+    cam_name = camera_id.replace("-", "_")
+    map_path = session_dir / f"{cam_name}_stripped_frame_map.json"
+    
+    if not map_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Frame alignment mapping not found for {camera_id} in session {session_id}."
+        )
+    import json
+    try:
+        with open(map_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read frame mapping data: {e}"
+        )
+
