@@ -46,9 +46,76 @@ def calibrate_intrinsics(
         objp = np.zeros((chessboard_corners_size[0] * chessboard_corners_size[1], 3), np.float32)
         objp[:, :2] = np.mgrid[0:chessboard_corners_size[0], 0:chessboard_corners_size[1]].T.reshape(-1, 2) * square_length
     elif board_type == "charuco":
-        dictionary = cv2.aruco.getPredefinedDictionary(dictionary_id)
-        board = cv2.aruco.CharucoBoard(grid_size, square_length, marker_length, dictionary)
-        detector = cv2.aruco.CharucoDetector(board)
+        # We try a list of standard dictionaries to support users who printed their board using non-default presets (e.g. DICT_4X4_50)
+        seen_dicts = set()
+        unique_dicts = []
+        for d in [dictionary_id] + [
+            cv2.aruco.DICT_4X4_50,
+            cv2.aruco.DICT_4X4_100,
+            cv2.aruco.DICT_4X4_250,
+            cv2.aruco.DICT_4X4_1000,
+            cv2.aruco.DICT_5X5_50,
+            cv2.aruco.DICT_5X5_100,
+            cv2.aruco.DICT_5X5_250,
+            cv2.aruco.DICT_5X5_1000,
+            cv2.aruco.DICT_6X6_50,
+            cv2.aruco.DICT_6X6_100,
+            cv2.aruco.DICT_6X6_250,
+            cv2.aruco.DICT_6X6_1000,
+            cv2.aruco.DICT_7X7_50,
+            cv2.aruco.DICT_7X7_100,
+            cv2.aruco.DICT_7X7_250,
+            cv2.aruco.DICT_7X7_1000,
+            cv2.aruco.DICT_ARUCO_ORIGINAL,
+        ]:
+            if d not in seen_dicts:
+                seen_dicts.add(d)
+                unique_dicts.append(d)
+        
+        # Configure detector parameters to detect small markers far away (lowering minMarkerPerimeterRate)
+        detector_params = cv2.aruco.DetectorParameters()
+        detector_params.minMarkerPerimeterRate = 0.005  # Allow smaller markers at a distance
+        detector_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+        
+        # Try both grid orientations in case the board is rotated
+        grid_sizes_to_try = [grid_size]
+        if grid_size[0] != grid_size[1]:
+            grid_sizes_to_try.append((grid_size[1], grid_size[0]))
+
+        detected_dict = None
+        detected_grid_size = None
+        for dict_id in unique_dicts:
+            for g_size in grid_sizes_to_try:
+                dictionary = cv2.aruco.getPredefinedDictionary(dict_id)
+                board = cv2.aruco.CharucoBoard(g_size, square_length, marker_length, dictionary)
+                detector = cv2.aruco.CharucoDetector(board, detectorParams=detector_params)
+                
+                any_detected = False
+                for img_path in calibration_images:
+                    img = cv2.imread(str(img_path))
+                    if img is None:
+                        continue
+                    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                    charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
+                    if charuco_corners is not None and len(charuco_corners) >= 4:
+                        any_detected = True
+                        break
+                
+                if any_detected:
+                    detected_dict = dict_id
+                    detected_grid_size = g_size
+                    break
+            if detected_dict is not None:
+                break
+                
+        if detected_dict is None:
+            dictionary = cv2.aruco.getPredefinedDictionary(dictionary_id)
+            board = cv2.aruco.CharucoBoard(grid_size, square_length, marker_length, dictionary)
+            detector = cv2.aruco.CharucoDetector(board, detectorParams=detector_params)
+        else:
+            dictionary = cv2.aruco.getPredefinedDictionary(detected_dict)
+            board = cv2.aruco.CharucoBoard(detected_grid_size, square_length, marker_length, dictionary)
+            detector = cv2.aruco.CharucoDetector(board, detectorParams=detector_params)
     else:
         raise ValueError(f"Unknown board type: {board_type}")
 
@@ -134,9 +201,85 @@ def calibrate_stereo(
         objp = np.zeros((chessboard_corners_size[0] * chessboard_corners_size[1], 3), np.float32)
         objp[:, :2] = np.mgrid[0:chessboard_corners_size[0], 0:chessboard_corners_size[1]].T.reshape(-1, 2) * square_length
     elif board_type == "charuco":
-        dictionary = cv2.aruco.getPredefinedDictionary(dictionary_id)
-        board = cv2.aruco.CharucoBoard(grid_size, square_length, marker_length, dictionary)
-        detector = cv2.aruco.CharucoDetector(board)
+        # We try a list of standard dictionaries to support users who printed their board using non-default presets (e.g. DICT_4X4_50)
+        seen_dicts = set()
+        unique_dicts = []
+        for d in [dictionary_id] + [
+            cv2.aruco.DICT_4X4_50,
+            cv2.aruco.DICT_4X4_100,
+            cv2.aruco.DICT_4X4_250,
+            cv2.aruco.DICT_4X4_1000,
+            cv2.aruco.DICT_5X5_50,
+            cv2.aruco.DICT_5X5_100,
+            cv2.aruco.DICT_5X5_250,
+            cv2.aruco.DICT_5X5_1000,
+            cv2.aruco.DICT_6X6_50,
+            cv2.aruco.DICT_6X6_100,
+            cv2.aruco.DICT_6X6_250,
+            cv2.aruco.DICT_6X6_1000,
+            cv2.aruco.DICT_7X7_50,
+            cv2.aruco.DICT_7X7_100,
+            cv2.aruco.DICT_7X7_250,
+            cv2.aruco.DICT_7X7_1000,
+            cv2.aruco.DICT_ARUCO_ORIGINAL,
+        ]:
+            if d not in seen_dicts:
+                seen_dicts.add(d)
+                unique_dicts.append(d)
+        
+        # Configure detector parameters to detect small markers far away (lowering minMarkerPerimeterRate)
+        detector_params = cv2.aruco.DetectorParameters()
+        detector_params.minMarkerPerimeterRate = 0.005  # Allow smaller markers at a distance
+        detector_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+        
+        # Try both grid orientations in case the board is rotated
+        grid_sizes_to_try = [grid_size]
+        if grid_size[0] != grid_size[1]:
+            grid_sizes_to_try.append((grid_size[1], grid_size[0]))
+
+        detected_dict = None
+        detected_grid_size = None
+        for dict_id in unique_dicts:
+            for g_size in grid_sizes_to_try:
+                dictionary = cv2.aruco.getPredefinedDictionary(dict_id)
+                board = cv2.aruco.CharucoBoard(g_size, square_length, marker_length, dictionary)
+                detector = cv2.aruco.CharucoDetector(board, detectorParams=detector_params)
+                
+                any_detected = False
+                for img_path_a, img_path_b in zip(shared_board_images_a, shared_board_images_b):
+                    img_a = cv2.imread(str(img_path_a))
+                    img_b = cv2.imread(str(img_path_b))
+                    if img_a is None or img_b is None:
+                        continue
+                    gray_a = cv2.cvtColor(img_a, cv2.COLOR_BGR2GRAY)
+                    gray_b = cv2.cvtColor(img_b, cv2.COLOR_BGR2GRAY)
+                    charuco_corners_a, charuco_ids_a, _, _ = detector.detectBoard(gray_a)
+                    charuco_corners_b, charuco_ids_b, _, _ = detector.detectBoard(gray_b)
+                    
+                    if (charuco_corners_a is not None and len(charuco_corners_a) >= 4 and
+                            charuco_corners_b is not None and len(charuco_corners_b) >= 4):
+                        ids_a = charuco_ids_a.flatten()
+                        ids_b = charuco_ids_b.flatten()
+                        common_ids = np.intersect1d(ids_a, ids_b)
+                        if len(common_ids) >= 4:
+                            any_detected = True
+                            break
+                
+                if any_detected:
+                    detected_dict = dict_id
+                    detected_grid_size = g_size
+                    break
+            if detected_dict is not None:
+                break
+                
+        if detected_dict is None:
+            dictionary = cv2.aruco.getPredefinedDictionary(dictionary_id)
+            board = cv2.aruco.CharucoBoard(grid_size, square_length, marker_length, dictionary)
+            detector = cv2.aruco.CharucoDetector(board, detectorParams=detector_params)
+        else:
+            dictionary = cv2.aruco.getPredefinedDictionary(detected_dict)
+            board = cv2.aruco.CharucoBoard(detected_grid_size, square_length, marker_length, dictionary)
+            detector = cv2.aruco.CharucoDetector(board, detectorParams=detector_params)
     else:
         raise ValueError(f"Unknown board type: {board_type}")
 

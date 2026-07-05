@@ -169,3 +169,61 @@ def test_calibration_recovers_synthetic_parameters(tmp_path):
 
     assert np.allclose(R_recovered, R_rel, atol=0.05)
     assert np.allclose(T_recovered, T_rel.flatten(), atol=0.02)
+
+
+def test_charuco_calibration_fallback_and_rotation(tmp_path):
+    # Board layout as visually captured (swapped orientation): cols=4, rows=5
+    # The user enters (5, 4) in the UI, but because it is rotated, we want the system to auto-detect (4, 5).
+    grid_size_user = (5, 4)
+    grid_size_actual = (4, 5)
+    
+    square_length = 0.05
+    marker_length = 0.037
+    square_size_px = 120
+    img_size = (640, 480)
+    
+    # Generate the physical board using DICT_4X4_250
+    dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_250)
+    board = cv2.aruco.CharucoBoard(grid_size_actual, square_length, marker_length, dictionary)
+    board_img = board.generateImage((grid_size_actual[0] * square_size_px, grid_size_actual[1] * square_size_px))
+    
+    # Ground truth intrinsics
+    K = np.array([
+        [600.0, 0.0, 320.0],
+        [0.0, 600.0, 240.0],
+        [0.0, 0.0, 1.0]
+    ], dtype=np.float32)
+    
+    # Generate a few calibration poses (using ChArUco board)
+    poses = [
+        (np.array([0.1, -0.05, 0.2], dtype=np.float32), np.array([-0.1, -0.05, 0.45], dtype=np.float32)),
+        (np.array([0.05, 0.1, -0.15], dtype=np.float32), np.array([-0.08, -0.08, 0.48], dtype=np.float32)),
+        (np.array([-0.15, 0.05, 0.1], dtype=np.float32), np.array([-0.12, -0.02, 0.42], dtype=np.float32)),
+        (np.array([0.02, -0.12, 0.05], dtype=np.float32), np.array([-0.1, -0.1, 0.5], dtype=np.float32)),
+    ]
+    
+    cam_a_paths = []
+    for idx, (rvec, tvec) in enumerate(poses):
+        img_a = generate_perspective_warped_board(
+            board_img, grid_size_actual, square_size_px, square_length, K, rvec, tvec, img_size
+        )
+        path_a = tmp_path / f"charuco_cam_a_{idx}.png"
+        cv2.imwrite(str(path_a), img_a)
+        cam_a_paths.append(path_a)
+        
+    # Calibrate. We pass the user's grid size (5, 4) and default DICT_6X6_250.
+    # The upgraded calibrate_intrinsics should auto-detect DICT_4X4_250 and grid size (4, 5) and succeed.
+    calib = calibrate_intrinsics(
+        cam_a_paths,
+        board_type="charuco",
+        grid_size=grid_size_user,
+        square_length=square_length,
+        marker_length=marker_length,
+        dictionary_id=cv2.aruco.DICT_6X6_250
+    )
+    
+    assert calib.reprojection_error_px is not None
+    assert calib.reprojection_error_px < 1.0
+    assert calib.fx == pytest.approx(600.0, abs=80.0)
+    assert calib.fy == pytest.approx(600.0, abs=80.0)
+
