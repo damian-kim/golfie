@@ -265,3 +265,26 @@ def get_frame_map(session_id: str, camera_id: str) -> dict:
             detail=f"Failed to read frame mapping data: {e}"
         )
 
+
+@router.get("/{session_id}/logs", response_model=list[str])
+def get_session_logs(session_id: str) -> list[str]:
+    _get_session_or_404(session_id)
+    log_path = Path(r"E:\Golfie\golfie\progress.log")
+    if not log_path.exists():
+        return []
+    
+    session_logs = []
+    try:
+        with log_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                if f"Session {session_id}:" in line:
+                    parts = line.split(f"Session {session_id}:", 1)
+                    if len(parts) == 2:
+                        session_logs.append(parts[1].strip())
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read session logs: {e}"
+        )
+    return session_logs
+

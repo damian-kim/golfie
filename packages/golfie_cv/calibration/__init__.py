@@ -19,6 +19,8 @@ from golfie_core.schemas import CalibrationResult, CameraIntrinsics, CoordinateS
 import cv2
 import numpy as np
 
+MIN_CHARUCO_CORNERS = 6
+
 def calibrate_intrinsics(
     calibration_images: Sequence[str | Path],
     board_type: str = "charuco",
@@ -97,7 +99,7 @@ def calibrate_intrinsics(
                         continue
                     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
                     charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
-                    if charuco_corners is not None and len(charuco_corners) >= 4:
+                    if charuco_corners is not None and len(charuco_corners) >= MIN_CHARUCO_CORNERS:
                         any_detected = True
                         break
                 
@@ -138,7 +140,9 @@ def calibrate_intrinsics(
                 img_points.append(corners_refined)
         elif board_type == "charuco":
             charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
-            if charuco_corners is not None and len(charuco_corners) >= 4:
+            num_corners = len(charuco_corners) if charuco_corners is not None else 0
+            print(f"[Calibration Debug] Image {img_path.name}: detected {num_corners} ChArUco corners.")
+            if charuco_corners is not None and len(charuco_corners) >= MIN_CHARUCO_CORNERS:
                 # Get the 3D coordinates of detected ChArUco corners
                 # board.getMatchPrediction (or manually matching charuco_ids to board.getChessboardCorners())
                 # In modern OpenCV, CharucoBoard exposes chessboardCorners (which matches the IDs)
@@ -156,9 +160,16 @@ def calibrate_intrinsics(
     obj_points = [np.array(p, dtype=np.float32) for p in obj_points]
     img_points = [np.array(p, dtype=np.float32) for p in img_points]
 
-    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
-        obj_points, img_points, image_size, None, None
-    )
+    try:
+        ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
+            obj_points, img_points, image_size, None, None
+        )
+    except cv2.error as e:
+        raise ValueError(
+            f"OpenCV camera calibration failed: {str(e)}. This usually happens when "
+            "detected corners are degenerate (e.g., collinear) or there is not enough "
+            "variation/frames with high-quality board detections in the calibration video."
+        ) from e
 
     return CameraIntrinsics(
         fx=float(mtx[0, 0]),
@@ -256,12 +267,12 @@ def calibrate_stereo(
                     charuco_corners_a, charuco_ids_a, _, _ = detector.detectBoard(gray_a)
                     charuco_corners_b, charuco_ids_b, _, _ = detector.detectBoard(gray_b)
                     
-                    if (charuco_corners_a is not None and len(charuco_corners_a) >= 4 and
-                            charuco_corners_b is not None and len(charuco_corners_b) >= 4):
+                    if (charuco_corners_a is not None and len(charuco_corners_a) >= MIN_CHARUCO_CORNERS and
+                            charuco_corners_b is not None and len(charuco_corners_b) >= MIN_CHARUCO_CORNERS):
                         ids_a = charuco_ids_a.flatten()
                         ids_b = charuco_ids_b.flatten()
                         common_ids = np.intersect1d(ids_a, ids_b)
-                        if len(common_ids) >= 4:
+                        if len(common_ids) >= MIN_CHARUCO_CORNERS:
                             any_detected = True
                             break
                 
@@ -306,15 +317,20 @@ def calibrate_stereo(
             charuco_corners_a, charuco_ids_a, _, _ = detector.detectBoard(gray_a)
             charuco_corners_b, charuco_ids_b, _, _ = detector.detectBoard(gray_b)
 
-            if (charuco_corners_a is not None and len(charuco_corners_a) >= 4 and
-                    charuco_corners_b is not None and len(charuco_corners_b) >= 4):
+            len_a = len(charuco_corners_a) if charuco_corners_a is not None else 0
+            len_b = len(charuco_corners_b) if charuco_corners_b is not None else 0
+            print(f"[Stereo Debug] Frame {img_path_a.name}/{img_path_b.name}: Cam A detected {len_a} corners, Cam B detected {len_b} corners.")
+
+            if (charuco_corners_a is not None and len(charuco_corners_a) >= MIN_CHARUCO_CORNERS and
+                    charuco_corners_b is not None and len(charuco_corners_b) >= MIN_CHARUCO_CORNERS):
                 
                 # We need to find corresponding corners observed in BOTH views
                 ids_a = charuco_ids_a.flatten()
                 ids_b = charuco_ids_b.flatten()
                 common_ids = np.intersect1d(ids_a, ids_b)
+                print(f"[Stereo Debug] Shared corners: {len(common_ids)}")
 
-                if len(common_ids) >= 4:
+                if len(common_ids) >= MIN_CHARUCO_CORNERS:
                     pts_a = []
                     pts_b = []
                     board_corners = board.getChessboardCorners()
@@ -342,11 +358,18 @@ def calibrate_stereo(
 
     # Perform stereo calibration. Keep intrinsics fixed.
     flags = cv2.CALIB_FIX_INTRINSIC
-    ret, _, _, _, _, R, T, E, F = cv2.stereoCalibrate(
-        obj_points, img_points_a, img_points_b,
-        mtx_a, dist_a, mtx_b, dist_b,
-        image_size, flags=flags
-    )
+    try:
+        ret, _, _, _, _, R, T, E, F = cv2.stereoCalibrate(
+            obj_points, img_points_a, img_points_b,
+            mtx_a, dist_a, mtx_b, dist_b,
+            image_size, flags=flags
+        )
+    except cv2.error as e:
+        raise ValueError(
+            f"OpenCV stereo calibration failed: {str(e)}. "
+            "Ensure the calibration board is simultaneously visible, well-lit, and in focus "
+            "in both camera views."
+        ) from e
 
     # Format camera A extrinsics as identity world coordinate frame by default,
     # and camera B extrinsics relative to it.

@@ -87,6 +87,10 @@ export const api = {
     return request(`/sessions/${sessionId}/status`);
   },
 
+  getLogs(sessionId: string): Promise<string[]> {
+    return request<string[]>(`/sessions/${sessionId}/logs`);
+  },
+
   getResults(sessionId: string): Promise<ShotResult> {
     return request<ShotResult>(`/sessions/${sessionId}/results`);
   },
@@ -105,6 +109,10 @@ export const api = {
 
   getActiveCalibration(): Promise<CalibrationResult> {
     return request<CalibrationResult>("/calibration/active");
+  },
+
+  getCalibrationLogs(): Promise<string[]> {
+    return request<string[]>("/calibration/logs");
   },
 
   async uploadAndCalibrate(

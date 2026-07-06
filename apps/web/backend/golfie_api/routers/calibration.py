@@ -24,30 +24,39 @@ def extract_synced_frames(
     """Sync two videos and extract matching frames for calibration."""
     from golfie_cv.sync import estimate_sync_offset
 
-    # Determine sync offset
-    try:
-        sync = estimate_sync_offset(video_path_a, video_path_b)
-        offset_frames = int(round(sync.offset_frames))
-    except Exception:
-        offset_frames = 0
-
     cap_a = cv2.VideoCapture(str(video_path_a))
     cap_b = cv2.VideoCapture(str(video_path_b))
 
     total_a = int(cap_a.get(cv2.CAP_PROP_FRAME_COUNT))
     total_b = int(cap_b.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    # Overlap regions
-    start_a = max(0, -offset_frames)
-    start_b = max(0, offset_frames)
+    fps_a = cap_a.get(cv2.CAP_PROP_FPS)
+    fps_b = cap_b.get(cv2.CAP_PROP_FPS)
+    
+    if fps_a <= 0: fps_a = 30.0
+    if fps_b <= 0: fps_b = 30.0
 
-    overlap_len = min(total_a - start_a, total_b - start_b)
-    if overlap_len <= 0:
-        start_a = 0
-        start_b = 0
-        overlap_len = min(total_a, total_b)
+    duration_a = total_a / fps_a
+    duration_b = total_b / fps_b
 
-    step = max(1, overlap_len // max_frames)
+    # Determine sync offset in seconds
+    try:
+        sync = estimate_sync_offset(video_path_a, video_path_b)
+        offset_sec = sync.offset_seconds
+    except Exception:
+        offset_sec = 0.0
+
+    # Overlap regions in seconds
+    start_time_a = max(0.0, -offset_sec)
+    start_time_b = max(0.0, offset_sec)
+
+    overlap_duration = min(duration_a - start_time_a, duration_b - start_time_b)
+    if overlap_duration <= 0:
+        start_time_a = 0.0
+        start_time_b = 0.0
+        overlap_duration = min(duration_a, duration_b)
+
+    time_step = overlap_duration / max_frames
 
     # Subdirectories within temp directory
     tmp_dir_a = video_path_a.parent / "_tmp_cal_a"
@@ -60,8 +69,9 @@ def extract_synced_frames(
 
     saved = 0
     for i in range(max_frames):
-        idx_a = start_a + i * step
-        idx_b = start_b + i * step
+        t = i * time_step
+        idx_a = int(round((start_time_a + t) * fps_a))
+        idx_b = int(round((start_time_b + t) * fps_b))
 
         if idx_a >= total_a or idx_b >= total_b:
             break
@@ -102,6 +112,40 @@ def get_active_calibration() -> CalibrationResult:
         )
 
 
+from datetime import datetime
+
+CALIBRATION_LOG_PATH = Path(r"E:\Golfie\golfie\calibration_progress.log")
+
+def log_calibration_progress(msg: str):
+    try:
+        # Clear log if it's the start of calibration
+        mode = "w" if "Starting" in msg else "a"
+        with open(CALIBRATION_LOG_PATH, mode, encoding="utf-8") as f:
+            f.write(f"[{datetime.now().isoformat()}] {msg}\n")
+    except Exception:
+        pass
+
+
+@router.get("/logs", response_model=list[str])
+def get_calibration_logs() -> list[str]:
+    if not CALIBRATION_LOG_PATH.exists():
+        return []
+    
+    logs = []
+    try:
+        with CALIBRATION_LOG_PATH.open("r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.split("] ", 1)
+                if len(parts) == 2:
+                    logs.append(parts[1].strip())
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read calibration logs: {e}"
+        )
+    return logs
+
+
 @router.post("/upload", response_model=CalibrationResult)
 async def upload_and_calibrate(
     file_a: UploadFile = File(...),
@@ -112,32 +156,38 @@ async def upload_and_calibrate(
     square_size: float = Form(default=0.04),
     marker_size: float = Form(default=0.03),
 ) -> CalibrationResult:
+    log_calibration_progress("Starting calibration process...")
     temp_dir = Path(tempfile.mkdtemp(prefix="golfie_cal_"))
     try:
         path_a = temp_dir / f"cal_a{Path(file_a.filename or '').suffix or '.mp4'}"
         path_b = temp_dir / f"cal_b{Path(file_b.filename or '').suffix or '.mp4'}"
 
+        log_calibration_progress("Writing uploaded camera videos to temporary storage...")
         with path_a.open("wb") as f:
             shutil.copyfileobj(file_a.file, f)
         with path_b.open("wb") as f:
             shutil.copyfileobj(file_b.file, f)
 
         # Extract matching frames
+        log_calibration_progress("Extracting synced calibration frames from videos...")
         try:
             paths_a, paths_b = extract_synced_frames(path_a, path_b)
         except Exception as exc:
+            log_calibration_progress(f"Failed to read or sync calibration videos: {exc}")
             raise HTTPException(
                 status_code=400,
                 detail=f"Failed to read or sync calibration videos: {exc}",
             )
 
         if not paths_a or not paths_b:
+            log_calibration_progress("Could not extract aligned frames from the calibration videos.")
             raise HTTPException(
                 status_code=400,
                 detail="Could not extract aligned frames from the calibration videos.",
             )
 
         # Calibrate Camera A
+        log_calibration_progress("Calibrating Camera A intrinsic lens parameters...")
         try:
             intrinsics_a = calibrate_intrinsics(
                 paths_a,
@@ -147,12 +197,14 @@ async def upload_and_calibrate(
                 marker_length=marker_size,
             )
         except Exception as exc:
+            log_calibration_progress(f"Camera A intrinsics calibration failed: {exc}")
             raise HTTPException(
                 status_code=400,
                 detail=f"Camera A intrinsics calibration failed: {exc}",
             )
 
         # Calibrate Camera B
+        log_calibration_progress("Calibrating Camera B intrinsic lens parameters...")
         try:
             intrinsics_b = calibrate_intrinsics(
                 paths_b,
@@ -162,12 +214,14 @@ async def upload_and_calibrate(
                 marker_length=marker_size,
             )
         except Exception as exc:
+            log_calibration_progress(f"Camera B intrinsics calibration failed: {exc}")
             raise HTTPException(
                 status_code=400,
                 detail=f"Camera B intrinsics calibration failed: {exc}",
             )
 
         # Run Stereo Extrinsics
+        log_calibration_progress("Performing stereo extrinsic relative camera pose estimation...")
         try:
             stereo_result = calibrate_stereo(
                 intrinsics_a,
@@ -180,14 +234,17 @@ async def upload_and_calibrate(
                 marker_length=marker_size,
             )
         except Exception as exc:
+            log_calibration_progress(f"Stereo extrinsic calibration failed: {exc}")
             raise HTTPException(
                 status_code=400,
                 detail=f"Stereo extrinsic calibration failed: {exc}",
             )
 
         # Persist results
+        log_calibration_progress("Saving active calibration result to disk...")
         ACTIVE_CALIBRATION_PATH.parent.mkdir(parents=True, exist_ok=True)
         ACTIVE_CALIBRATION_PATH.write_text(stereo_result.model_dump_json(indent=2))
+        log_calibration_progress("Rig calibration completed successfully!")
         return stereo_result
 
     finally:

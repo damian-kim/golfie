@@ -14,24 +14,45 @@ from golfie_core.schemas import SyncResult, SyncMethod
 def _find_ffmpeg_fallback() -> str | None:
     import shutil
     import os
-    import glob
+    from pathlib import Path
     
     # 1. Check if already in PATH
     if shutil.which("ffmpeg"):
         return "ffmpeg"
         
-    # 2. Check Overwolf extensions (contains Obs ffmpeg version 7.0.2)
+    # 2. Check common Windows installation paths
+    common_paths = [
+        r"C:\ffmpeg\bin\ffmpeg.exe",
+        r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+        r"E:\ffmpeg\bin\ffmpeg.exe",
+        r"E:\Golfie\ffmpeg\bin\ffmpeg.exe",
+        r"E:\Golfie\ffmpeg\ffmpeg.exe",
+    ]
+    for p in common_paths:
+        if os.path.exists(p):
+            return p
+            
+    # 3. Check if E:\ffmpeg contains a nested build directory (very common for zip extractions)
+    try:
+        ffmpeg_root = Path(r"E:\ffmpeg")
+        if ffmpeg_root.exists():
+            for sub in ffmpeg_root.iterdir():
+                if sub.is_dir():
+                    candidate = sub / "bin" / "ffmpeg.exe"
+                    if candidate.exists():
+                        return str(candidate)
+    except Exception:
+        pass
+
+    # 4. Check Overwolf extensions (without recursive globbing)
     try:
         local_app_data = os.environ.get("LOCALAPPDATA")
         if local_app_data:
-            pattern = os.path.join(local_app_data, "Overwolf", "**", "ffmpeg.exe")
-            matches = glob.glob(pattern, recursive=True)
-            if matches:
-                ffmpeg_path = matches[0]
-                ffmpeg_dir = os.path.dirname(ffmpeg_path)
-                # Add OBS bin directory to PATH so ffmpeg can load avcodec.dll, avformat.dll, etc.
-                os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
-                return ffmpeg_path
+            # Check specific known subdirectories instead of recursive globbing
+            ow_obs = os.path.join(local_app_data, "Overwolf", "obs", "bin", "ffmpeg.exe")
+            if os.path.exists(ow_obs):
+                os.environ["PATH"] = os.path.dirname(ow_obs) + os.pathsep + os.environ.get("PATH", "")
+                return ow_obs
     except Exception:
         pass
         

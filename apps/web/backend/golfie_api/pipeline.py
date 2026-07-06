@@ -80,14 +80,24 @@ def run_real_processing(session: Session) -> ShotResult:
 
     log_progress("Transcoding Camera A to constant 240 FPS CFR...")
     try:
-        ensure_constant_frame_rate(session.camera_a.video_path, cfr_path_a, target_fps=240.0)
+        ensure_constant_frame_rate(
+            session.camera_a.video_path,
+            cfr_path_a,
+            target_fps=240.0,
+            progress_callback=lambda msg: log_progress(f"[Camera A] {msg}")
+        )
     except Exception as e:
         log_progress(f"Transcoding Camera A failed: {e}")
         raise PipelineError(f"CFR Transcoding failed: {e}")
 
     log_progress("Transcoding Camera B to constant 240 FPS CFR...")
     try:
-        ensure_constant_frame_rate(session.camera_b.video_path, cfr_path_b, target_fps=240.0)
+        ensure_constant_frame_rate(
+            session.camera_b.video_path,
+            cfr_path_b,
+            target_fps=240.0,
+            progress_callback=lambda msg: log_progress(f"[Camera B] {msg}")
+        )
     except Exception as e:
         log_progress(f"Transcoding Camera B failed: {e}")
         raise PipelineError(f"CFR Transcoding failed: {e}")
@@ -132,8 +142,8 @@ def run_real_processing(session: Session) -> ShotResult:
         log_progress("Error: One or both videos empty")
         raise PipelineError("One or both video files contain no readable frames.")
 
-    fps_a = session.camera_a.fps
-    fps_b = session.camera_b.fps
+    fps_a = meta_a.fps
+    fps_b = meta_b.fps
 
     log_progress("Building background models...")
     bg_a = build_background_model(initial_frames_a)
@@ -226,19 +236,23 @@ def run_real_processing(session: Session) -> ShotResult:
     log_progress("Starting 3D triangulation...", ProcessingStage.TRIANGULATING)
 
     # 4. Sync-align Camera B track to Camera A timeline
-    # We prefer visual alignment based on the start of the detected ball tracks
-    # because it is immune to microphone latency, audio-video lag in containers,
-    # or audio correlation failures.
-    if track_a and track_b:
+    # We prefer the audio sync offset if it is available and has non-zero confidence,
+    # but if confidence is 0% (indicating correlation failure), we fall back to
+    # the visual track alignment.
+    use_audio = session.sync is not None and session.sync.confidence > 0.1
+    
+    if use_audio:
+        sync_offset_sec = session.sync.offset_seconds
+        sync_offset_frames = sync_offset_sec * fps_a
+        log_progress(f"Using audio sync alignment. Time offset: {sync_offset_sec:.3f}s ({sync_offset_frames:.1f} frames) [confidence: {session.sync.confidence*100:.1f}%]")
+    elif track_a and track_b:
         sync_offset_frames = float(track_a[0].frame_index - track_b[0].frame_index)
         sync_offset_sec = sync_offset_frames / fps_a
-        log_progress(f"Using visual track alignment. Start A: frame {track_a[0].frame_index}, Start B: frame {track_b[0].frame_index}. Visual offset: {sync_offset_sec:.3f}s ({sync_offset_frames:.1f} frames).")
+        log_progress(f"Using visual track alignment fallback. Start A: frame {track_a[0].frame_index}, Start B: frame {track_b[0].frame_index}. Visual offset: {sync_offset_sec:.3f}s ({sync_offset_frames:.1f} frames).")
     else:
         sync_offset_sec = 0.0
         sync_offset_frames = 0.0
-        if session.sync is not None:
-            sync_offset_sec = session.sync.offset_seconds
-            sync_offset_frames = session.sync.offset_frames
+        log_progress("No synchronization data available, defaulting to 0.0 offset.")
 
     aligned_track_b = [
         TrackedPoint2D(

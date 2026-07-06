@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
 import type { CalibrationResult } from "../lib/types";
@@ -165,6 +165,57 @@ function CalibrationDiagram({ boardType }: { boardType: "charuco" | "chessboard"
 export function CalibratePage() {
   const navigate = useNavigate();
 
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<CalibrationResult | null>(null);
+
+  const [logs, setLogs] = useState<string[]>([]);
+  const logContainerRef = useRef<HTMLDivElement>(null);
+
+  // Poll calibration progress logs while busy
+  useEffect(() => {
+    if (!busy) {
+      setLogs([]);
+      return;
+    }
+
+    const poll = () => {
+      api.getCalibrationLogs()
+        .then((res) => {
+          setLogs(res);
+        })
+        .catch(() => {});
+    };
+
+    poll();
+    const interval = setInterval(poll, 1200);
+    return () => clearInterval(interval);
+  }, [busy]);
+
+  // Auto-scroll logs to bottom
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logs]);
+
+  const getCalibrationProgress = () => {
+    if (logs.length === 0) return 5;
+    const lastLog = logs[logs.length - 1].toLowerCase();
+    if (lastLog.includes("starting")) return 10;
+    if (lastLog.includes("writing")) return 25;
+    if (lastLog.includes("extracting")) return 45;
+    if (lastLog.includes("camera a")) return 65;
+    if (lastLog.includes("camera b")) return 80;
+    if (lastLog.includes("stereo")) return 90;
+    if (lastLog.includes("saving")) return 95;
+    if (lastLog.includes("completed")) return 100;
+    if (lastLog.includes("failed")) return 100;
+    return 50; // fallback
+  };
+
+  const progressPercent = getCalibrationProgress();
+
   // Preset state
   const [selectedPresetId, setSelectedPresetId] = useState<string>("charuco_a4_std");
 
@@ -182,10 +233,6 @@ export function CalibratePage() {
 
   const [fileA, setFileA] = useState<File | null>(null);
   const [fileB, setFileB] = useState<File | null>(null);
-
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<CalibrationResult | null>(null);
 
   // Auto set preset parameters
   const handlePresetChange = (presetId: string) => {
@@ -317,7 +364,7 @@ export function CalibratePage() {
         </div>
       )}
 
-      {!result && (
+      {!result && !busy && (
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 24 }}>
           {/* Setup Walkthrough Card */}
           <div className="card" style={{ borderColor: "rgba(76, 194, 115, 0.2)", background: "rgba(10, 16, 13, 0.72)" }}>
@@ -612,6 +659,95 @@ export function CalibratePage() {
             )}
           </div>
         </form>
+      )}
+
+      {!result && busy && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 24, maxWidth: 520, margin: "20px 0" }}>
+          {/* Progress / Status Bar */}
+          <div style={{ width: "100%" }}>
+            <div style={{
+              display: "flex",
+              justifyContent: "space-between",
+              fontSize: "12px",
+              color: "var(--color-muted)",
+              marginBottom: "8px",
+              fontWeight: 600
+            }}>
+              <span>Calibration Progress</span>
+              <span>{progressPercent}%</span>
+            </div>
+            <div style={{
+              height: "8px",
+              width: "100%",
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: "4px",
+              overflow: "hidden",
+              position: "relative"
+            }}>
+              <div style={{
+                height: "100%",
+                width: `${progressPercent}%`,
+                background: "linear-gradient(90deg, var(--color-turf) 0%, var(--color-turf-bright) 100%)",
+                boxShadow: "0 0 8px var(--color-turf-bright)",
+                transition: "width 0.4s cubic-bezier(0.1, 0.8, 0.2, 1)",
+                borderRadius: "4px"
+              }} />
+            </div>
+          </div>
+
+          {/* Telemetry log terminal console */}
+          <div className="card" style={{ background: "#080c10", borderColor: "rgba(152, 175, 199, 0.2)", padding: "16px", margin: 0 }}>
+            <h3 className="card__title" style={{ fontSize: "11px", color: "var(--color-muted)", marginBottom: "8px", display: "flex", justifyContent: "space-between", textTransform: "uppercase" }}>
+              <span>Calibration Logs</span>
+              <span style={{ fontSize: "10px", color: "var(--color-turf-bright)", fontFamily: "var(--font-mono)" }}>LIVE_FEED</span>
+            </h3>
+            <div 
+              ref={logContainerRef}
+              style={{
+                height: "180px",
+                overflowY: "auto",
+                background: "rgba(0,0,0,0.5)",
+                border: "1px solid rgba(255,255,255,0.05)",
+                borderRadius: "var(--radius-sm)",
+                padding: "12px",
+                fontFamily: "var(--font-mono)",
+                fontSize: "11px",
+                lineHeight: "1.6",
+                color: "#e2e8f0",
+                whiteSpace: "pre-wrap",
+                display: "flex",
+                flexDirection: "column",
+                gap: "4px"
+              }}
+            >
+              {logs.length === 0 ? (
+                <span style={{ color: "var(--color-muted-dim)" }}>[system] Starting calibration engine...</span>
+              ) : (
+                logs.map((log, i) => {
+                  let color = "#e2e8f0";
+                  if (log.toLowerCase().includes("fail") || log.toLowerCase().includes("error")) {
+                    color = "var(--color-danger)";
+                  } else if (log.toLowerCase().includes("complete") || log.toLowerCase().includes("success") || log.startsWith("✓")) {
+                    color = "var(--color-turf-bright)";
+                  } else if (log.toLowerCase().includes("starting") || log.toLowerCase().includes("writing") || log.toLowerCase().includes("extracting") || log.toLowerCase().includes("calibrating") || log.toLowerCase().includes("performing")) {
+                    color = "var(--color-amber)";
+                  }
+                  return (
+                    <div key={i} style={{ color, display: "flex", alignItems: "flex-start" }}>
+                      <span style={{ color: "var(--color-muted-dim)", marginRight: "8px", userSelect: "none" }}>&gt;</span>
+                      <span style={{ flex: 1 }}>{log}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+          
+          <span style={{ fontSize: "12px", color: "var(--color-muted)" }} className="pulse-glowing">
+            Please wait while the rig calibration computes. This may take up to a minute...
+          </span>
+        </div>
       )}
     </div>
   );

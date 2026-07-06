@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
 import "../styles/forms.css";
@@ -19,8 +19,11 @@ export function ProcessingPage() {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeStage, setActiveStage] = useState<string>("created");
+  const [logs, setLogs] = useState<string[]>([]);
+  const logContainerRef = useRef<HTMLDivElement>(null);
 
+  // Trigger processing
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
@@ -37,35 +40,63 @@ export function ProcessingPage() {
     };
   }, [sessionId]);
 
+  // Handle auto-redirect on done
   useEffect(() => {
     if (done) {
-      setActiveIndex(STAGES.length);
       const t = setTimeout(() => navigate(`/sessions/${sessionId}/review`), 1200);
       return () => clearTimeout(t);
     }
   }, [done, sessionId, navigate]);
 
+  // Real-time status and logs polling
   useEffect(() => {
-    if (done || error) return;
-    const interval = setInterval(() => {
-      setActiveIndex((prev) => {
-        if (prev < STAGES.length - 1) {
-          return prev + 1;
-        }
-        return prev;
-      });
-    }, 900);
+    if (!sessionId || done || error) return;
+
+    const poll = () => {
+      api.getStatus(sessionId)
+        .then((status) => {
+          if (status.stage) {
+            setActiveStage(status.stage);
+            if (status.stage === "done") {
+              setDone(true);
+            } else if (status.stage === "failed") {
+              setError(status.error || "Processing failed.");
+            }
+          }
+        })
+        .catch(() => {
+          // Ignore transient network errors
+        });
+
+      api.getLogs(sessionId)
+        .then((res) => {
+          setLogs(res);
+        })
+        .catch(() => {});
+    };
+
+    poll();
+    const interval = setInterval(poll, 1200);
     return () => clearInterval(interval);
-  }, [done, error]);
+  }, [sessionId, done, error]);
+
+  // Auto-scroll telemetry log to bottom
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logs]);
+
+  const stageIndex = STAGES.findIndex((s) => s.key === activeStage);
+  const activeIndex = done ? STAGES.length : stageIndex === -1 ? 0 : stageIndex;
+  const progressPercent = done ? 100 : Math.max(5, Math.round((activeIndex / STAGES.length) * 100));
 
   return (
-    <div className="page page--focused" style={{ padding: "40px 24px" }}>
+    <div className="page page--focused" style={{ padding: "40px 24px", display: "flex", flexDirection: "column", gap: 24 }}>
       <div>
         <h1 className="page__title">Processing shot</h1>
         <p className="page__subtitle">
-          v0 pipeline note: most stages below are structural placeholders (Milestones 1-7 are
-          not implemented yet) -- this confirms both videos and reports honest, label-checked
-          results rather than pretending to track or triangulate anything.
+          Real-time dual-camera telemetry processing. Watch progress metrics and transcode logs below.
         </p>
       </div>
 
@@ -76,7 +107,41 @@ export function ProcessingPage() {
         </div>
       )}
 
-      <div className="card" style={{ maxWidth: 520, background: "rgba(8, 12, 16, 0.45)", borderColor: "rgba(152, 175, 199, 0.2)" }}>
+      {/* Progress / Status Bar */}
+      <div style={{ maxWidth: 520, width: "100%", margin: "0" }}>
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          fontSize: "12px",
+          color: "var(--color-muted)",
+          marginBottom: "8px",
+          fontWeight: 600
+        }}>
+          <span>Pipeline Progress</span>
+          <span>{progressPercent}%</span>
+        </div>
+        <div style={{
+          height: "8px",
+          width: "100%",
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(255,255,255,0.06)",
+          borderRadius: "4px",
+          overflow: "hidden",
+          position: "relative"
+        }}>
+          <div style={{
+            height: "100%",
+            width: `${progressPercent}%`,
+            background: "linear-gradient(90deg, var(--color-turf) 0%, var(--color-turf-bright) 100%)",
+            boxShadow: "0 0 8px var(--color-turf-bright)",
+            transition: "width 0.4s cubic-bezier(0.1, 0.8, 0.2, 1)",
+            borderRadius: "4px"
+          }} />
+        </div>
+      </div>
+
+      {/* Stage List Card */}
+      <div className="card" style={{ maxWidth: 520, background: "rgba(8, 12, 16, 0.45)", borderColor: "rgba(152, 175, 199, 0.2)", margin: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: 10, marginBottom: 12 }}>
           <span className="field__label" style={{ color: "var(--color-muted)" }}>Pipeline Phase</span>
           <span className="field__label" style={{ color: "var(--color-muted)" }}>Telemetry Status</span>
@@ -141,6 +206,54 @@ export function ProcessingPage() {
             );
           })}
         </ul>
+      </div>
+
+      {/* Telemetry log terminal console */}
+      <div className="card" style={{ maxWidth: 520, background: "#080c10", borderColor: "rgba(152, 175, 199, 0.2)", padding: "16px", margin: 0 }}>
+        <h3 className="card__title" style={{ fontSize: "11px", color: "var(--color-muted)", marginBottom: "8px", display: "flex", justifyContent: "space-between", textTransform: "uppercase" }}>
+          <span>Telemetry Stream</span>
+          <span style={{ fontSize: "10px", color: "var(--color-turf-bright)", fontFamily: "var(--font-mono)" }}>LIVE_FEED</span>
+        </h3>
+        <div 
+          ref={logContainerRef}
+          style={{
+            height: "160px",
+            overflowY: "auto",
+            background: "rgba(0,0,0,0.5)",
+            border: "1px solid rgba(255,255,255,0.05)",
+            borderRadius: "var(--radius-sm)",
+            padding: "12px",
+            fontFamily: "var(--font-mono)",
+            fontSize: "11px",
+            lineHeight: "1.6",
+            color: "#e2e8f0",
+            whiteSpace: "pre-wrap",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px"
+          }}
+        >
+          {logs.length === 0 ? (
+            <span style={{ color: "var(--color-muted-dim)" }}>[system] Connecting to telemetry feed...</span>
+          ) : (
+            logs.map((log, i) => {
+              let color = "#e2e8f0";
+              if (log.toLowerCase().includes("fail") || log.toLowerCase().includes("error")) {
+                color = "var(--color-danger)";
+              } else if (log.toLowerCase().includes("complete") || log.toLowerCase().includes("success") || log.startsWith("✓")) {
+                color = "var(--color-turf-bright)";
+              } else if (log.toLowerCase().includes("starting") || log.toLowerCase().includes("processing") || log.toLowerCase().includes("transcoding")) {
+                color = "var(--color-amber)";
+              }
+              return (
+                <div key={i} style={{ color, display: "flex", alignItems: "flex-start" }}>
+                  <span style={{ color: "var(--color-muted-dim)", marginRight: "8px", userSelect: "none" }}>&gt;</span>
+                  <span style={{ flex: 1 }}>{log}</span>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
 
       {done && (

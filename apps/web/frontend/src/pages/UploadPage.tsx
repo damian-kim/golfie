@@ -235,16 +235,43 @@ function CameraUploadCard({
             <option value="face_on">Face-on / diagonal</option>
           </select>
         </label>
-        <label className="field">
+        <div className="field">
           <span className="field__label">Frame Rate / Speed</span>
-          <select value={fps} onChange={(e) => onFps(e.target.value)}>
-            <option value="">Auto-detect (recommended)</option>
-            <option value="240">240 fps (Slow-Motion)</option>
-            <option value="120">120 fps (Slow-Motion)</option>
-            <option value="60">60 fps</option>
-            <option value="30">30 fps (Normal)</option>
-          </select>
-        </label>
+          <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
+            <select
+              value={["", "240", "120", "60", "30"].includes(fps) ? fps : "custom"}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "custom") {
+                  onFps("177"); // default fallback custom fps
+                } else {
+                  onFps(val);
+                }
+              }}
+              style={{ flex: 1 }}
+            >
+              <option value="">Auto-detect (recommended)</option>
+              <option value="240">240 fps (Slow-Motion)</option>
+              <option value="120">120 fps (Slow-Motion)</option>
+              <option value="60">60 fps</option>
+              <option value="30">30 fps (Normal)</option>
+              <option value="custom">Custom...</option>
+            </select>
+            {!["", "240", "120", "60", "30"].includes(fps) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <input
+                  type="number"
+                  step="any"
+                  placeholder="fps"
+                  value={fps}
+                  onChange={(e) => onFps(e.target.value)}
+                  style={{ width: "80px", textAlign: "right" }}
+                />
+                <span style={{ fontSize: "11px", color: "var(--color-muted)" }}>fps</span>
+              </div>
+            )}
+          </div>
+        </div>
         {file && (
           <span className="field__hint">
             {file.name} · {(file.size / (1024 * 1024)).toFixed(1)} MB

@@ -15,6 +15,7 @@ interface ShotSimulatorViewProps {
 export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorViewProps) {
   const { metrics } = payload;
   const [showPrecursor, setShowPrecursor] = useState(payload.session_id !== "sample");
+  const [videoError, setVideoError] = useState<string | null>(null);
   const [playToken, setPlayToken] = useState(0);
 
   const videoAUrl = `${API_BASE_URL}/sessions/${payload.session_id}/video/camera_a/stripped`;
@@ -22,16 +23,23 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
 
   const handleVideoEnded = () => {
     setShowPrecursor(false);
+    setVideoError(null);
     setPlayToken((t) => t + 1);
   };
 
   const handleSkip = () => {
     setShowPrecursor(false);
+    setVideoError(null);
     setPlayToken((t) => t + 1);
+  };
+
+  const handleVideoError = () => {
+    setVideoError("Unable to load outline videos. Please ensure the shot has finished processing successfully.");
   };
 
   const handleReplayClick = () => {
     if (payload.session_id !== "sample") {
+      setVideoError(null);
       setShowPrecursor(true);
     } else {
       setPlayToken((t) => t + 1);
@@ -201,31 +209,43 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
               <div className="precursor-header__subtitle mono">YOLOv8 DETECTED SWING PATHS</div>
             </div>
             
-            <div className="precursor-videos">
-              <div className="precursor-video-wrapper camera-a">
-                <div className="precursor-video-label">CAMERA A · DOWN-THE-LINE</div>
-                <video 
-                  src={videoAUrl} 
-                  autoPlay 
-                  muted 
-                  playsInline
-                  onEnded={handleVideoEnded}
-                  onError={handleSkip}
-                  className="precursor-video"
-                />
+            {videoError ? (
+              <div style={{ padding: "48px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+                <span style={{ fontSize: "32px" }}>⚠️</span>
+                <p style={{ color: "var(--color-danger)", fontSize: "14px", maxWidth: "400px", margin: 0, lineHeight: 1.5 }}>
+                  {videoError}
+                </p>
+                <button className="primary-button" style={{ marginTop: "12px" }} onClick={handleSkip}>
+                  Continue to Simulator
+                </button>
               </div>
-              <div className="precursor-video-wrapper camera-b">
-                <div className="precursor-video-label">CAMERA B · FACE-ON</div>
-                <video 
-                  src={videoBUrl} 
-                  autoPlay 
-                  muted 
-                  playsInline
-                  onError={handleSkip}
-                  className="precursor-video"
-                />
+            ) : (
+              <div className="precursor-videos">
+                <div className="precursor-video-wrapper camera-a">
+                  <div className="precursor-video-label">CAMERA A · DOWN-THE-LINE</div>
+                  <video 
+                    src={videoAUrl} 
+                    autoPlay 
+                    muted 
+                    playsInline
+                    onEnded={handleVideoEnded}
+                    onError={handleVideoError}
+                    className="precursor-video"
+                  />
+                </div>
+                <div className="precursor-video-wrapper camera-b">
+                  <div className="precursor-video-label">CAMERA B · FACE-ON</div>
+                  <video 
+                    src={videoBUrl} 
+                    autoPlay 
+                    muted 
+                    playsInline
+                    onError={handleVideoError}
+                    className="precursor-video"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="precursor-footer">
               <div className="precursor-progress-bar">
