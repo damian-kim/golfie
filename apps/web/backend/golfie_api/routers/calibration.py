@@ -42,13 +42,23 @@ def extract_synced_frames(
     # Determine sync offset in seconds
     try:
         sync = estimate_sync_offset(video_path_a, video_path_b)
-        offset_sec = sync.offset_seconds
+        candidate_offset = sync.offset_seconds
+        
+        # Verify that the offset produces a valid overlapping window
+        s_a = max(0.0, candidate_offset)
+        s_b = max(0.0, -candidate_offset)
+        overlap = min(duration_a - s_a, duration_b - s_b)
+        
+        if overlap > 1.0:
+            offset_sec = candidate_offset
+        else:
+            offset_sec = 0.0
     except Exception:
         offset_sec = 0.0
 
     # Overlap regions in seconds
-    start_time_a = max(0.0, -offset_sec)
-    start_time_b = max(0.0, offset_sec)
+    start_time_a = max(0.0, offset_sec)
+    start_time_b = max(0.0, -offset_sec)
 
     overlap_duration = min(duration_a - start_time_a, duration_b - start_time_b)
     if overlap_duration <= 0:

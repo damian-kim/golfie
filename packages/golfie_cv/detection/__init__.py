@@ -39,6 +39,8 @@ def detect_ball_candidates(frame: np.ndarray, background_model: np.ndarray | Non
     else:
         gray = frame
 
+    diff = None
+
     # Background subtraction if available
     if background_model is not None:
         if len(background_model.shape) == 3:
@@ -46,18 +48,34 @@ def detect_ball_candidates(frame: np.ndarray, background_model: np.ndarray | Non
         else:
             bg_gray = background_model
         
-        # Compute absolute difference
+        # Compute absolute difference to detect both light-on-dark and dark-on-light motion
         diff = cv2.absdiff(gray, bg_gray)
-        # Threshold difference
+        # Threshold difference to filter high-frequency flicker/camera vibration.
         _, motion_mask = cv2.threshold(diff, 15, 255, cv2.THRESH_BINARY)
     else:
         motion_mask = np.ones_like(gray) * 255
 
-    # Threshold absolute brightness for a white/highlight ball
-    _, bright_mask = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+    # Prefer golf-ball-like pixels: bright/white, but do not require a fixed
+    # global brightness because indoor turf/net lighting varies a lot.
+    _, bright_mask = cv2.threshold(gray, 80, 255, cv2.THRESH_BINARY)
+    if len(frame.shape) == 3:
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        saturation = hsv[:, :, 1]
+        value = hsv[:, :, 2]
+        white_mask = cv2.inRange(hsv, (0, 0, 105), (179, 95, 255))
+        specular_mask = cv2.inRange(value, 145, 255)
+        color_mask = cv2.bitwise_or(white_mask, specular_mask)
+    else:
+        saturation = np.zeros_like(gray)
+        value = gray
+        color_mask = bright_mask
 
     # Combine masks
-    mask = cv2.bitwise_and(motion_mask, bright_mask)
+    mask = cv2.bitwise_and(motion_mask, cv2.bitwise_or(bright_mask, color_mask))
+
+    # Clean one-pixel sensor noise without merging separate moving objects.
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
     # Find contours in the mask
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -65,8 +83,9 @@ def detect_ball_candidates(frame: np.ndarray, background_model: np.ndarray | Non
     candidates = []
     for contour in contours:
         area = cv2.contourArea(contour)
-        # Ignore extremely small noise or overly large shapes
-        if area < 12 or area > 5000:
+        # Ignore extremely small noise or large moving body/club regions. A
+        # motion-blurred ball streak is still usually far below this size.
+        if area < 4 or area > 2000:
             continue
 
         # Get enclosing circle parameters
@@ -94,17 +113,41 @@ def detect_ball_candidates(frame: np.ndarray, background_model: np.ndarray | Non
             except cv2.error:
                 pass
 
+        x_i = int(np.clip(round(x), 0, gray.shape[1] - 1))
+        y_i = int(np.clip(round(y), 0, gray.shape[0] - 1))
+        contour_mask = np.zeros_like(gray, dtype=np.uint8)
+        cv2.drawContours(contour_mask, [contour], -1, 255, thickness=-1)
+        mean_value = float(cv2.mean(value, mask=contour_mask)[0])
+        mean_saturation = float(cv2.mean(saturation, mask=contour_mask)[0])
+        whiteness_score = np.clip((mean_value - 70.0) / 150.0, 0.0, 1.0) * np.clip(
+            (140.0 - mean_saturation) / 140.0, 0.25, 1.0
+        )
+        if diff is not None:
+            motion_strength = float(diff[y_i, x_i]) / 255.0
+        else:
+            motion_strength = 0.7
+
+        # The in-flight ball is small; penalize bigger regions without throwing
+        # away close or blurred balls outright.
+        size_score = float(np.clip(1.0 - (area / 2000.0), 0.15, 1.0))
+
         # Compute confidence score
         if is_streak:
             # Scale confidence by contour solidity
             hull = cv2.convexHull(contour)
             hull_area = cv2.contourArea(hull)
             solidity = area / (hull_area + 1e-6)
-            confidence = float(solidity * 0.9)
+            shape_confidence = float(solidity * 0.9)
         else:
             # Circle shape confidence based on circularity
-            confidence = float(min(1.0, circularity))
+            shape_confidence = float(min(1.0, circularity))
 
+        confidence = float(
+            0.45 * shape_confidence
+            + 0.25 * whiteness_score
+            + 0.20 * motion_strength
+            + 0.10 * size_score
+        )
         confidence = max(0.1, min(1.0, confidence))
 
         candidates.append(
@@ -131,5 +174,4 @@ def build_background_model(pre_impact_frames: list[np.ndarray]) -> np.ndarray:
 
 
 from golfie_cv.detection.relevant_window import detect_relevant_window
-from golfie_cv.detection.yolo_outlines import render_stripped_outlines_video
-
+from golfie_cv.detection.yolo_outlines import render_ball_detection_replay, render_stripped_outlines_video

@@ -8,6 +8,8 @@ def ensure_constant_frame_rate(
     video_path: Path, 
     output_path: Path, 
     target_fps: float = 240.0,
+    start_time: float | None = None,
+    duration: float | None = None,
     progress_callback = None
 ) -> Path:
     """Transcode a variable frame rate (VFR) video into a constant frame rate (CFR) video.
@@ -17,17 +19,31 @@ def ensure_constant_frame_rate(
     """
     video_path = Path(video_path)
     output_path = Path(output_path)
+    
+    # Skip transcoding if CFR video already exists and is valid to prevent file locking/re-work
+    if output_path.exists() and output_path.stat().st_size > 0:
+        cap = cv2.VideoCapture(str(output_path))
+        is_valid = cap.isOpened()
+        cap.release()
+        if is_valid:
+            if progress_callback:
+                progress_callback("CFR transcoded video already exists. Skipping transcoding.")
+            return output_path
+
     ffmpeg_bin = _find_ffmpeg_fallback() or "ffmpeg"
     
-    # Estimate total duration of input video to calculate progress percentage
+    # Estimate total duration of processed video to calculate progress percentage
     duration_s = 0.0
     try:
-        cap = cv2.VideoCapture(str(video_path))
-        if cap.isOpened():
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-            duration_s = frame_count / fps if fps > 0 else 0.0
-            cap.release()
+        if duration is not None and duration > 0:
+            duration_s = float(duration)
+        else:
+            cap = cv2.VideoCapture(str(video_path))
+            if cap.isOpened():
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+                duration_s = frame_count / fps if fps > 0 else 0.0
+                cap.release()
     except Exception:
         pass
 
@@ -69,10 +85,20 @@ def ensure_constant_frame_rate(
         process.wait()
         return process.returncode, process.stdout.read() if process.stdout else "", "".join(buffer)
 
+    input_args = []
+    if start_time is not None and start_time > 0:
+        input_args.extend(["-ss", f"{float(start_time):.6f}"])
+    input_args.extend(["-i", str(video_path)])
+
+    trim_args = []
+    if duration is not None and duration > 0:
+        trim_args.extend(["-t", f"{float(duration):.6f}"])
+
     # Try using modern -fps_mode first
     cmd = [
         ffmpeg_bin, "-y",
-        "-i", str(video_path),
+        *input_args,
+        *trim_args,
         "-r", str(target_fps),
         "-fps_mode", "cfr",
         "-vcodec", "libx264",
@@ -89,7 +115,8 @@ def ensure_constant_frame_rate(
             # Fall back to deprecated -vsync for older FFmpeg installations
             cmd_fallback = [
                 ffmpeg_bin, "-y",
-                "-i", str(video_path),
+                *input_args,
+                *trim_args,
                 "-r", str(target_fps),
                 "-vsync", "cfr",
                 "-vcodec", "libx264",

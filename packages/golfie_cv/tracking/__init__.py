@@ -23,7 +23,17 @@ def track_ball_2d(
     low-confidence stretches can be flagged in the UI rather than
     silently trusted.
     """
+    # Sort candidates by confidence (descending) BEFORE slicing to top 100.
+    # Without this sort, the real ball (which may be candidate #150+) is randomly
+    # discarded when grass/vibration noise generates 150-400 contours per frame.
+    candidates_by_frame = [
+        sorted(cands, key=lambda c: c.confidence, reverse=True)[:100]
+        for cands in candidates_by_frame
+    ]
+
+
     import numpy as np
+
 
     class ActiveTrack:
         def __init__(self, start_frame: int, candidate: BallCandidate):
@@ -92,11 +102,86 @@ def track_ball_2d(
                 return 999.0
 
         def score(self) -> float:
-            # Score matches based on candidate count, average confidence, and quadratic fit RMSE
+            # Score function tuned to select the real ball-in-flight track:
+            # - Real ball: short (5-10 frames), very fast (45-214 px/frame), often streaks
+            # - Noise (club/body): long (50-80 frames), slow (8-22 px/frame), circular blobs
+            #
+            # Key design choices:
+            # 1. Use total displacement (not speed*length) — prevents double-counting length
+            # 2. Boost streak confidence — motion-blurred ball has unfairly low circularity
+            # 3. Prefer tracks starting within 2 frames of impact (frames 13-20)
+            # 4. Hard-penalize slow tracks (speed < 5 px/fr)
             n = len(self.candidates)
-            avg_conf = np.mean([c.confidence for c in self.candidates]) if n > 0 else 0.0
+            if n < 3:
+                return -9999.0
+
+            disp = self.total_displacement()
+            step_distances = [
+                float(np.hypot(
+                    self.candidates[i].x_px - self.candidates[i - 1].x_px,
+                    self.candidates[i].y_px - self.candidates[i - 1].y_px,
+                ))
+                for i in range(1, n)
+            ]
+            if not step_distances:
+                return -9999.0
+
+            median_step = float(np.median(step_distances))
+            p90_step = float(np.percentile(step_distances, 90))
+
+            launch_frame = self.frames[0]
+            launch_step = p90_step
+            for i, step in enumerate(step_distances, start=1):
+                if step >= 4.0:
+                    launch_frame = self.frames[i]
+                    launch_step = step
+                    break
+
+            # Hard speed gating: real ball moves fast
+            # Use binary gates (not continuous) to avoid disp*speed double-counting
+            if p90_step < 4.0 or disp < 12.0:
+                speed_gate = 0.001
+            elif median_step < 1.5 and p90_step < 8.0:
+                speed_gate = 0.01
+            elif p90_step < 8.0:
+                speed_gate = 0.1
+            else:
+                speed_gate = 1.0
+
+            # Boost confidence for streaks — motion-blurred ball at 30fps gets
+            # low circularity/solidity (~0.4-0.5) compared to static noise blobs (~0.8)
+            # This unfairly penalizes real ball detections
+            confs = []
+            for c in self.candidates:
+                conf = c.confidence
+                if c.is_streak:
+                    conf = min(1.0, conf * 1.5)  # Boost streak confidence by 50%
+                confs.append(conf)
+            avg_conf = float(np.mean(confs))
+
             rmse = self.get_rmse()
-            return float(n * avg_conf - 0.2 * rmse)
+
+            # Temporal window: ball in flight starts at/just after impact (frame 15)
+            # Primary window: 11-22 gets full credit (ball visible slightly before impact
+            # due to backswing motion detection, and flies for several frames after)
+            # Secondary window: 8-28 gets partial credit. Outside gets harsh penalty.
+            if 10 <= launch_frame <= 28:
+                start_penalty = 1.0
+            elif 6 <= launch_frame <= 38:
+                start_penalty = 0.3
+            else:
+                start_penalty = 0.01
+
+            # Primary signal: displacement * confidence * gates
+            # Also require minimum point count for robustness (penalize n < 5)
+            n_factor = min(n, 8) / 8.0  # Scales 3→0.375, 5→0.625, 8+→1.0
+            launch_boost = min(2.0, max(0.5, launch_step / 12.0))
+            return float(disp * avg_conf * start_penalty * speed_gate * n_factor * launch_boost - 0.5 * rmse)
+
+
+
+
+
 
         def total_displacement(self) -> float:
             if len(self.candidates) < 2:
@@ -125,13 +210,13 @@ def track_ball_2d(
                 # Dynamic gating radius
                 n = len(track.candidates)
                 if n == 1:
-                    # Gating is wider for first step since velocity is unknown.
-                    # If candidate is a streak, it's moving fast, so we expand the search.
-                    gate_r = 150.0 if (cand.is_streak or track.candidates[0].is_streak) else 50.0
+                    # Gating is wider for first step since velocity is unknown and ball moves very fast.
+                    gate_r = 450.0
                 elif n == 2:
-                    gate_r = 30.0
+                    gate_r = 250.0
                 else:
-                    gate_r = 15.0
+                    gate_r = 150.0
+
 
                 if dist <= gate_r:
                     associations.append((dist, track_idx, cand_idx))
@@ -154,6 +239,11 @@ def track_ball_2d(
         for track_idx, track in enumerate(active_tracks):
             if track_idx not in matched_tracks:
                 track.add_gap()
+                # Prune short-lived tracks immediately if they have gaps (filters noise)
+                if len(track.candidates) == 1 and track.gap_count >= 1:
+                    continue
+                if len(track.candidates) == 2 and track.gap_count >= 2:
+                    continue
                 if track.gap_count <= max_gaps:
                     still_active_tracks.append(track)
                 else:
@@ -177,14 +267,38 @@ def track_ball_2d(
     if not valid_tracks:
         return []
 
-    # Filter for tracks that represent a fast-moving ball (average speed >= 5.0 pixels per frame)
-    # This filters out background noise/drifting tracks and slower descent tracks.
-    moving_tracks = [t for t in valid_tracks if (t.total_displacement() / len(t.candidates)) >= 5.0]
+    # Filter for tracks that represent a moving ball:
+    # 1. Total displacement must be >= 10.0 pixels to filter out drifting background noise.
+    # 2. Average speed must be >= 0.3 pixels per frame.
+    moving_tracks = [
+        t for t in valid_tracks 
+        if t.total_displacement() >= 10.0 and (t.total_displacement() / len(t.candidates)) >= 0.3
+    ]
     if moving_tracks:
         valid_tracks = moving_tracks
+    else:
+        # If no moving tracks are found, return empty to prevent falling back to stationary noise
+        return []
 
-    # Select the track with the highest score
     best_track = max(valid_tracks, key=lambda t: t.score())
+
+    # Keep debug output focused on likely launch tracks instead of dumping
+    # hundreds of noise tracks from club/body motion.
+    sorted_tracks = sorted(valid_tracks, key=lambda x: x.score(), reverse=True)
+    plausible_launch_tracks = [
+        t for t in sorted_tracks
+        if t is best_track or (t.frames[0] <= 45 and t.frames[-1] >= 6)
+    ][:5]
+
+    print(f"\n--- 2D TRACK BALL DEBUG (valid_tracks={len(valid_tracks)}, showing={len(plausible_launch_tracks)}) ---")
+    for i, t in enumerate(plausible_launch_tracks):
+        disp = t.total_displacement()
+        speed = disp / (len(t.candidates) + 1e-6)
+        label = "SELECTED" if t is best_track else f"ALT {i}"
+        print(f"  {label}: len={len(t.candidates)}, frames={t.frames[0]} to {t.frames[-1]}, disp={disp:.1f}, speed={speed:.2f} px/fr, score={t.score():.2f}")
+        for pt_idx, (c, f) in enumerate(zip(t.candidates[:3], t.frames[:3])):
+            print(f"    Pt {pt_idx}: frame={f}, pos=({c.x_px:.1f}, {c.y_px:.1f}), conf={c.confidence:.3f}, streak={c.is_streak}")
+
 
     # Build the continuous tracked points list, bridging gaps with prediction
     tracked_points: list[TrackedPoint2D] = []

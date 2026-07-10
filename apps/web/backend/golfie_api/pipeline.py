@@ -69,33 +69,84 @@ def run_real_processing(session: Session) -> ShotResult:
         except Exception:
             pass
 
+    import golfie_cv
+    import sys
+    log_progress(f"golfie_cv imported from: {golfie_cv.__file__}")
+    log_progress(f"sys.path: {sys.path[:5]}")
+
     log_progress("Starting real processing pipeline", ProcessingStage.DETECTING_IMPACT)
 
-    from golfie_cv.detection import detect_relevant_window, render_stripped_outlines_video
+    from golfie_cv.detection import detect_relevant_window, render_ball_detection_replay, render_stripped_outlines_video
     from golfie_cv.video import read_video_metadata, ensure_constant_frame_rate
 
     session_dir = session_store.session_dir(session.session_id)
-    cfr_path_a = session_dir / "camera_a_cfr.mp4"
-    cfr_path_b = session_dir / "camera_b_cfr.mp4"
 
-    log_progress("Transcoding Camera A to constant 240 FPS CFR...")
+    def resolve_video_path(video_path):
+        from pathlib import Path
+        path = Path(video_path)
+        return path if path.is_absolute() else session_dir / path
+
+    orig_path_a = resolve_video_path(session.camera_a.video_path)
+    orig_path_b = resolve_video_path(session.camera_b.video_path)
+    
+    orig_meta_a = read_video_metadata(orig_path_a)
+    orig_meta_b = read_video_metadata(orig_path_b)
+
+
+    log_progress("Detecting relevant window for Camera A...")
+    _, _, impact_a = detect_relevant_window(orig_path_a, orig_meta_a.fps, orig_meta_a.frame_count)
+    
+    # Calculate start/end times in the original timeline, then only transcode
+    # that short shot window into CFR. This avoids converting minutes of video
+    # just to process ~100 ball-tracking frames.
+    start_time_a = max(0.0, impact_a - 3.0)
+    end_time_a = min(orig_meta_a.frame_count / orig_meta_a.fps, impact_a + 2.0)
+    duration_a = orig_meta_a.frame_count / orig_meta_a.fps
+    if duration_a >= 5.0:
+        if start_time_a == 0.0:
+            end_time_a = 5.0
+        elif end_time_a == duration_a:
+            start_time_a = max(0.0, duration_a - 5.0)
+
+    log_progress("Detecting relevant window for Camera B...")
+    _, _, impact_b = detect_relevant_window(orig_path_b, orig_meta_b.fps, orig_meta_b.frame_count)
+    
+    start_time_b = max(0.0, impact_b - 3.0)
+    end_time_b = min(orig_meta_b.frame_count / orig_meta_b.fps, impact_b + 2.0)
+    duration_b = orig_meta_b.frame_count / orig_meta_b.fps
+    if duration_b >= 5.0:
+        if start_time_b == 0.0:
+            end_time_b = 5.0
+        elif end_time_b == duration_b:
+            start_time_b = max(0.0, duration_b - 5.0)
+
+    cfr_path_a = session_dir / f"camera_a_shot_{int(start_time_a * 1000)}_{int(end_time_a * 1000)}_cfr.mp4"
+    cfr_path_b = session_dir / f"camera_b_shot_{int(start_time_b * 1000)}_{int(end_time_b * 1000)}_cfr.mp4"
+
+    log_progress(f"Camera A relevant window: {start_time_a:.2f}s to {end_time_a:.2f}s (impact: {impact_a:.2f}s)")
+    log_progress("Transcoding Camera A shot window to constant 240 FPS CFR...")
     try:
         ensure_constant_frame_rate(
-            session.camera_a.video_path,
+            orig_path_a,
             cfr_path_a,
             target_fps=240.0,
+            start_time=start_time_a,
+            duration=end_time_a - start_time_a,
             progress_callback=lambda msg: log_progress(f"[Camera A] {msg}")
         )
     except Exception as e:
         log_progress(f"Transcoding Camera A failed: {e}")
         raise PipelineError(f"CFR Transcoding failed: {e}")
 
-    log_progress("Transcoding Camera B to constant 240 FPS CFR...")
+    log_progress(f"Camera B relevant window: {start_time_b:.2f}s to {end_time_b:.2f}s (impact: {impact_b:.2f}s)")
+    log_progress("Transcoding Camera B shot window to constant 240 FPS CFR...")
     try:
         ensure_constant_frame_rate(
-            session.camera_b.video_path,
+            orig_path_b,
             cfr_path_b,
             target_fps=240.0,
+            start_time=start_time_b,
+            duration=end_time_b - start_time_b,
             progress_callback=lambda msg: log_progress(f"[Camera B] {msg}")
         )
     except Exception as e:
@@ -105,22 +156,28 @@ def run_real_processing(session: Session) -> ShotResult:
     meta_a = read_video_metadata(cfr_path_a)
     meta_b = read_video_metadata(cfr_path_b)
 
-    log_progress("Detecting relevant window for Camera A...")
-    start_frame_a, end_frame_a, impact_a = detect_relevant_window(cfr_path_a, meta_a.fps, meta_a.frame_count)
-    log_progress(f"Camera A relevant window: {start_frame_a} to {end_frame_a} (impact: {impact_a:.2f}s)")
+    start_frame_a = 0
+    end_frame_a = meta_a.frame_count
+    start_frame_b = 0
+    end_frame_b = meta_b.frame_count
+    impact_cfr_a = impact_a - start_time_a
+    impact_cfr_b = impact_b - start_time_b
+    log_progress(f"Camera A CFR clip frames: {start_frame_a} to {end_frame_a} (impact: {impact_cfr_a:.2f}s in clip)")
+    log_progress(f"Camera B CFR clip frames: {start_frame_b} to {end_frame_b} (impact: {impact_cfr_b:.2f}s in clip)")
 
-    log_progress("Detecting relevant window for Camera B...")
-    start_frame_b, end_frame_b, impact_b = detect_relevant_window(cfr_path_b, meta_b.fps, meta_b.frame_count)
-    log_progress(f"Camera B relevant window: {start_frame_b} to {end_frame_b} (impact: {impact_b:.2f}s)")
 
-    def read_initial_frames(path, count=20):
+    def read_background_frames(path, start_frame, count=15, step=4):
         cap = cv2.VideoCapture(str(path))
-        if not cap.isOpened():
+        opened = cap.isOpened()
+        if not opened:
             cap.release()
             raise PipelineError(f"Could not open video file: {path}")
         frames = []
         try:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
             for _ in range(count):
+                for _ in range(step):
+                    cap.grab()
                 ok, frame = cap.read()
                 if not ok or frame is None:
                     break
@@ -130,28 +187,28 @@ def run_real_processing(session: Session) -> ShotResult:
         return frames
 
     try:
-        log_progress("Reading initial background frames for Camera A...")
-        initial_frames_a = read_initial_frames(cfr_path_a, 20)
-        log_progress("Reading initial background frames for Camera B...")
-        initial_frames_b = read_initial_frames(cfr_path_b, 20)
+        log_progress("Reading background frames for Camera A...")
+        background_frames_a = read_background_frames(cfr_path_a, start_frame_a, 15, 4)
+        log_progress("Reading background frames for Camera B...")
+        background_frames_b = read_background_frames(cfr_path_b, start_frame_b, 15, 4)
     except Exception as e:
-        log_progress(f"OOM or error reading initial frames: {e}")
+        log_progress(f"OOM or error reading background frames: {e}")
         raise PipelineError(f"Error reading video frames: {e}")
 
-    if not initial_frames_a or not initial_frames_b:
-        log_progress("Error: One or both videos empty")
-        raise PipelineError("One or both video files contain no readable frames.")
+    if not background_frames_a or not background_frames_b:
+        log_progress("Error: One or both background frame sets empty")
+        raise PipelineError("One or both video files contain no readable background frames.")
 
     fps_a = meta_a.fps
     fps_b = meta_b.fps
 
     log_progress("Building background models...")
-    bg_a = build_background_model(initial_frames_a)
-    bg_b = build_background_model(initial_frames_b)
+    bg_a = build_background_model(background_frames_a)
+    bg_b = build_background_model(background_frames_b)
 
     # Free memory immediately
-    del initial_frames_a
-    del initial_frames_b
+    del background_frames_a
+    del background_frames_b
     import gc
     gc.collect()
 
@@ -184,9 +241,19 @@ def run_real_processing(session: Session) -> ShotResult:
         log_progress(f"[{label}] Finished processing {frame_idx} frames.")
         return candidates
 
+    # Crop candidate detection to a tight 95-frame window around the precise impact frame for tracking
+    impact_frame_a = int(round(impact_cfr_a * fps_a))
+    impact_frame_b = int(round(impact_cfr_b * fps_b))
+    
+    tracking_start_a = max(start_frame_a, impact_frame_a - 15)
+    tracking_end_a = min(end_frame_a, impact_frame_a + 80)
+    
+    tracking_start_b = max(start_frame_b, impact_frame_b - 15)
+    tracking_end_b = min(end_frame_b, impact_frame_b + 80)
+
     try:
-        candidates_a = detect_candidates_stream(cfr_path_a, bg_a, start_frame_a, end_frame_a, "Camera A")
-        candidates_b = detect_candidates_stream(cfr_path_b, bg_b, start_frame_b, end_frame_b, "Camera B")
+        candidates_a = detect_candidates_stream(cfr_path_a, bg_a, tracking_start_a, tracking_end_a, "Camera A")
+        candidates_b = detect_candidates_stream(cfr_path_b, bg_b, tracking_start_b, tracking_end_b, "Camera B")
     except Exception as e:
         log_progress(f"Error in candidate detection loop: {e}")
         raise PipelineError(f"Error processing video frames: {e}")
@@ -197,11 +264,11 @@ def run_real_processing(session: Session) -> ShotResult:
     track_a = track_ball_2d(candidates_a, fps_a)
     track_b = track_ball_2d(candidates_b, fps_b)
 
-    # Convert relative indices back to absolute indices
+    # Convert relative indices back to clip indices and original video timestamps.
     track_a = [
         TrackedPoint2D(
-            frame_index=pt.frame_index + start_frame_a,
-            time_seconds=(pt.frame_index + start_frame_a) / fps_a,
+            frame_index=pt.frame_index + tracking_start_a,
+            time_seconds=start_time_a + ((pt.frame_index + tracking_start_a) / fps_a),
             x_px=pt.x_px,
             y_px=pt.y_px,
             confidence=pt.confidence,
@@ -210,14 +277,17 @@ def run_real_processing(session: Session) -> ShotResult:
     ]
     track_b = [
         TrackedPoint2D(
-            frame_index=pt.frame_index + start_frame_b,
-            time_seconds=(pt.frame_index + start_frame_b) / fps_b,
+            frame_index=pt.frame_index + tracking_start_b,
+            time_seconds=start_time_b + ((pt.frame_index + tracking_start_b) / fps_b),
             x_px=pt.x_px,
             y_px=pt.y_px,
             confidence=pt.confidence,
         )
         for pt in track_b
     ]
+
+
+
 
     log_progress(f"2D tracking complete. Track A: {len(track_a)} pts, Track B: {len(track_b)} pts.")
 
@@ -233,26 +303,25 @@ def run_real_processing(session: Session) -> ShotResult:
             notes="Real pipeline ran but failed to find/track the ball."
         )
 
+    log_progress("Rendering down-the-line ball detection replay...", ProcessingStage.RENDERING)
+    try:
+        render_ball_detection_replay(
+            video_path=cfr_path_a,
+            start_frame=tracking_start_a,
+            end_frame=tracking_end_a,
+            output_path=session_dir / "camera_a_ball_replay.mp4",
+            ball_track_2d=track_a,
+        )
+    except Exception as e:
+        log_progress(f"Failed to render ball detection replay: {e}")
+
     log_progress("Starting 3D triangulation...", ProcessingStage.TRIANGULATING)
 
-    # 4. Sync-align Camera B track to Camera A timeline
-    # We prefer the audio sync offset if it is available and has non-zero confidence,
-    # but if confidence is 0% (indicating correlation failure), we fall back to
-    # the visual track alignment.
-    use_audio = session.sync is not None and session.sync.confidence > 0.1
-    
-    if use_audio:
-        sync_offset_sec = session.sync.offset_seconds
-        sync_offset_frames = sync_offset_sec * fps_a
-        log_progress(f"Using audio sync alignment. Time offset: {sync_offset_sec:.3f}s ({sync_offset_frames:.1f} frames) [confidence: {session.sync.confidence*100:.1f}%]")
-    elif track_a and track_b:
-        sync_offset_frames = float(track_a[0].frame_index - track_b[0].frame_index)
-        sync_offset_sec = sync_offset_frames / fps_a
-        log_progress(f"Using visual track alignment fallback. Start A: frame {track_a[0].frame_index}, Start B: frame {track_b[0].frame_index}. Visual offset: {sync_offset_sec:.3f}s ({sync_offset_frames:.1f} frames).")
-    else:
-        sync_offset_sec = 0.0
-        sync_offset_frames = 0.0
-        log_progress("No synchronization data available, defaulting to 0.0 offset.")
+    # 4. Sync-align Camera B track to Camera A timeline using audio-detected physical impact timestamps
+    sync_offset_sec = impact_a - impact_b
+    sync_offset_frames = sync_offset_sec * fps_a
+    log_progress(f"Using audio-aligned transient sync. Impact A: {impact_a:.3f}s, Impact B: {impact_b:.3f}s. Offset: {sync_offset_sec:.3f}s ({sync_offset_frames:.1f} frames)")
+
 
     aligned_track_b = [
         TrackedPoint2D(
@@ -264,6 +333,24 @@ def run_real_processing(session: Session) -> ShotResult:
         )
         for pt in track_b
     ]
+
+    # Diagnostic: log track ranges after alignment to verify temporal overlap
+    if track_a and aligned_track_b:
+        ta_times = [pt.time_seconds for pt in track_a]
+        tb_times = [pt.time_seconds for pt in aligned_track_b]
+        ta_frames = [pt.frame_index for pt in track_a]
+        tb_frames = [pt.frame_index for pt in aligned_track_b]
+        log_progress(
+            f"Track A: frames {min(ta_frames)}-{max(ta_frames)}, "
+            f"times {min(ta_times):.4f}s-{max(ta_times):.4f}s"
+        )
+        log_progress(
+            f"Track B (aligned): frames {min(tb_frames)}-{max(tb_frames)}, "
+            f"times {min(tb_times):.4f}s-{max(tb_times):.4f}s"
+        )
+        t_overlap_start = max(min(ta_times), min(tb_times))
+        t_overlap_end = min(max(ta_times), max(tb_times))
+        log_progress(f"Temporal overlap: {t_overlap_end - t_overlap_start:.4f}s")
 
     # 5. Triangulation
     try:
@@ -383,32 +470,36 @@ def run_real_processing(session: Session) -> ShotResult:
 
     log_progress(f"Processing complete! Carry: {full_flight.carry_m:.2f} m.")
 
-    log_progress("Rendering stripped outlines video for Camera A...", ProcessingStage.RENDERING)
-    session_dir = session_store.session_dir(session.session_id)
-    try:
-        render_stripped_outlines_video(
-            video_path=cfr_path_a,
-            start_frame=start_frame_a,
-            end_frame=end_frame_a,
-            output_path=session_dir / "camera_a_stripped.mp4",
-            background_model=bg_a,
-            ball_track_2d=track_a
-        )
-    except Exception as e:
-        log_progress(f"Failed to render outlines video for Camera A: {e}")
+    import os
+    if os.getenv("GOLFIE_RENDER_OUTLINES", "").lower() in {"1", "true", "yes"}:
+        log_progress("Rendering stripped outlines video for Camera A...", ProcessingStage.RENDERING)
+        session_dir = session_store.session_dir(session.session_id)
+        try:
+            render_stripped_outlines_video(
+                video_path=cfr_path_a,
+                start_frame=start_frame_a,
+                end_frame=end_frame_a,
+                output_path=session_dir / "camera_a_stripped.mp4",
+                background_model=bg_a,
+                ball_track_2d=track_a
+            )
+        except Exception as e:
+            log_progress(f"Failed to render outlines video for Camera A: {e}")
 
-    log_progress("Rendering stripped outlines video for Camera B...")
-    try:
-        render_stripped_outlines_video(
-            video_path=cfr_path_b,
-            start_frame=start_frame_b,
-            end_frame=end_frame_b,
-            output_path=session_dir / "camera_b_stripped.mp4",
-            background_model=bg_b,
-            ball_track_2d=track_b
-        )
-    except Exception as e:
-        log_progress(f"Failed to render outlines video for Camera B: {e}")
+        log_progress("Rendering stripped outlines video for Camera B...")
+        try:
+            render_stripped_outlines_video(
+                video_path=cfr_path_b,
+                start_frame=start_frame_b,
+                end_frame=end_frame_b,
+                output_path=session_dir / "camera_b_stripped.mp4",
+                background_model=bg_b,
+                ball_track_2d=track_b
+            )
+        except Exception as e:
+            log_progress(f"Failed to render outlines video for Camera B: {e}")
+    else:
+        log_progress("Skipping stripped outline debug render (set GOLFIE_RENDER_OUTLINES=1 to enable).", ProcessingStage.RENDERING)
 
     return ShotResult(
         metrics=metrics,

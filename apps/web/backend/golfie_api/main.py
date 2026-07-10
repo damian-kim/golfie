@@ -1,10 +1,15 @@
 """Golfie FastAPI backend entrypoint.
 
+
 Run with:
-    uvicorn golfie_api.main:app --reload --port 8000
-"""
+    uvicorn golfie_api.main:app --reload --port 8000"""
 
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+_root = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(_root / "packages"))
 
 import os
 import tempfile

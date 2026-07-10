@@ -231,3 +231,101 @@ def render_stripped_outlines_video(
         if res.returncode != 0:
             import shutil
             shutil.copy(str(temp_avi), str(output_path))
+
+
+def render_ball_detection_replay(
+    video_path: Path,
+    start_frame: int,
+    end_frame: int,
+    output_path: Path,
+    ball_track_2d: list | None = None,
+) -> None:
+    """Render a dark replay with the selected 2D ball track highlighted.
+
+    This is intentionally lightweight: it shows the ball track selected by
+    the pipeline without running the slower person/club YOLO overlay pass.
+    """
+    video_path = Path(video_path)
+    output_path = Path(output_path)
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open video file: {video_path}")
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    ball_lookup = {}
+    if ball_track_2d:
+        for pt in ball_track_2d:
+            f_idx = getattr(pt, "frame_index", None)
+            x = getattr(pt, "x_px", None)
+            y = getattr(pt, "y_px", None)
+            if isinstance(pt, dict):
+                f_idx = pt.get("frame_index", f_idx)
+                x = pt.get("x_px", x)
+                y = pt.get("y_px", y)
+            if f_idx is not None and x is not None and y is not None:
+                ball_lookup[int(f_idx)] = (float(x), float(y))
+
+    def draw_highlight(img, center, radius=14):
+        x, y = center
+        cv2.circle(img, (x, y), radius + 10, (0, 120, 120), thickness=-1, lineType=cv2.LINE_AA)
+        cv2.circle(img, (x, y), radius + 4, (0, 210, 255), thickness=3, lineType=cv2.LINE_AA)
+        cv2.circle(img, (x, y), max(3, radius // 3), (0, 255, 255), thickness=-1, lineType=cv2.LINE_AA)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        temp_avi = Path(tmpdir) / "ball_replay.avi"
+        fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+        out_writer = cv2.VideoWriter(str(temp_avi), fourcc, fps, (width, height))
+
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        recent_points = []
+
+        for frame_idx in range(start_frame, end_frame):
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+
+            # Obscure the scene while keeping enough context to recognize the shot.
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            dark = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            dark = cv2.convertScaleAbs(dark, alpha=0.22, beta=4)
+
+            if frame_idx in ball_lookup:
+                bx, by = ball_lookup[frame_idx]
+                center = (int(round(bx)), int(round(by)))
+                recent_points.append(center)
+                recent_points = recent_points[-18:]
+
+            if len(recent_points) >= 2:
+                for idx in range(1, len(recent_points)):
+                    alpha = idx / len(recent_points)
+                    color = (0, int(140 + 115 * alpha), int(160 + 95 * alpha))
+                    cv2.line(dark, recent_points[idx - 1], recent_points[idx], color, thickness=2, lineType=cv2.LINE_AA)
+
+            if frame_idx in ball_lookup and recent_points:
+                draw_highlight(dark, recent_points[-1])
+
+            out_writer.write(dark)
+
+        out_writer.release()
+        cap.release()
+
+        ffmpeg_bin = _find_ffmpeg_fallback() or "ffmpeg"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        cmd = [
+            ffmpeg_bin, "-y",
+            "-i", str(temp_avi),
+            "-vcodec", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-preset", "fast",
+            "-crf", "23",
+            str(output_path),
+        ]
+
+        res = subprocess.run(cmd, capture_output=True)
+        if res.returncode != 0:
+            import shutil
+            shutil.copy(str(temp_avi), str(output_path))

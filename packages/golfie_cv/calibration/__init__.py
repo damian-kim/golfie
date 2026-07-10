@@ -160,9 +160,19 @@ def calibrate_intrinsics(
     obj_points = [np.array(p, dtype=np.float32) for p in obj_points]
     img_points = [np.array(p, dtype=np.float32) for p in img_points]
 
+    # Initialize camera matrix with square pixels and centered principal point
+    mtx_init = np.zeros((3, 3), dtype=np.float64)
+    mtx_init[0, 0] = 1.0
+    mtx_init[1, 1] = 1.0
+    mtx_init[0, 2] = image_size[0] / 2.0
+    mtx_init[1, 2] = image_size[1] / 2.0
+    mtx_init[2, 2] = 1.0
+
+    flags = cv2.CALIB_FIX_PRINCIPAL_POINT | cv2.CALIB_FIX_ASPECT_RATIO
+
     try:
         ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
-            obj_points, img_points, image_size, None, None
+            obj_points, img_points, image_size, mtx_init, None, flags=flags
         )
     except cv2.error as e:
         raise ValueError(

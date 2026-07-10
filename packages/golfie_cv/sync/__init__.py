@@ -20,6 +20,27 @@ def _find_ffmpeg_fallback() -> str | None:
     if shutil.which("ffmpeg"):
         return "ffmpeg"
         
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        local_path = Path(local_app_data)
+        
+        # Check Medal ffmpeg
+        medal_bin = local_path / "Medal" / "ffmpeg7.exe"
+        if medal_bin.exists():
+            return str(medal_bin)
+            
+        # Check Overwolf obs 64bit extension ffmpeg
+        ow_ext = local_path / "Overwolf" / "Extensions" / "ncfplpkmiejjaklknfnkgcpapnhkggmlcppckhcb"
+        if ow_ext.exists():
+            try:
+                for sub in ow_ext.iterdir():
+                    if sub.is_dir():
+                        candidate = sub / "obs" / "bin" / "64bit" / "ffmpeg.exe"
+                        if candidate.exists():
+                            return str(candidate)
+            except Exception:
+                pass
+
     # 2. Check common Windows installation paths
     common_paths = [
         r"C:\ffmpeg\bin\ffmpeg.exe",
@@ -44,18 +65,6 @@ def _find_ffmpeg_fallback() -> str | None:
     except Exception:
         pass
 
-    # 4. Check Overwolf extensions (without recursive globbing)
-    try:
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if local_app_data:
-            # Check specific known subdirectories instead of recursive globbing
-            ow_obs = os.path.join(local_app_data, "Overwolf", "obs", "bin", "ffmpeg.exe")
-            if os.path.exists(ow_obs):
-                os.environ["PATH"] = os.path.dirname(ow_obs) + os.pathsep + os.environ.get("PATH", "")
-                return ow_obs
-    except Exception:
-        pass
-        
     return None
 
 
