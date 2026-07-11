@@ -1,6 +1,7 @@
 import subprocess
 from pathlib import Path
 import re
+import os
 import cv2
 from golfie_cv.sync import _find_ffmpeg_fallback
 
@@ -20,12 +21,29 @@ def ensure_constant_frame_rate(
     video_path = Path(video_path)
     output_path = Path(output_path)
     
-    # Skip transcoding if CFR video already exists and is valid to prevent file locking/re-work
+    def is_complete_video(path: Path) -> bool:
+        if not path.exists() or path.stat().st_size <= 0:
+            return False
+        cap = cv2.VideoCapture(str(path))
+        try:
+            if not cap.isOpened():
+                return False
+            actual_fps = float(cap.get(cv2.CAP_PROP_FPS))
+            actual_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            if actual_frames <= 0 or abs(actual_fps - target_fps) > max(0.5, target_fps * 0.01):
+                return False
+            if duration is not None and duration > 0:
+                expected_frames = duration * target_fps
+                if actual_frames < expected_frames * 0.9:
+                    return False
+            return True
+        finally:
+            cap.release()
+
+    # Skip only complete outputs. A file merely being openable does not mean
+    # another ffmpeg process finished writing its final moov atom/frames.
     if output_path.exists() and output_path.stat().st_size > 0:
-        cap = cv2.VideoCapture(str(output_path))
-        is_valid = cap.isOpened()
-        cap.release()
-        if is_valid:
+        if is_complete_video(output_path):
             if progress_callback:
                 progress_callback("CFR transcoded video already exists. Skipping transcoding.")
             return output_path
@@ -94,6 +112,8 @@ def ensure_constant_frame_rate(
     if duration is not None and duration > 0:
         trim_args.extend(["-t", f"{float(duration):.6f}"])
 
+    temporary_output = output_path.with_name(f"{output_path.stem}.partial{output_path.suffix}")
+
     # Try using modern -fps_mode first
     cmd = [
         ffmpeg_bin, "-y",
@@ -105,7 +125,7 @@ def ensure_constant_frame_rate(
         "-preset", "ultrafast",
         "-crf", "23",
         "-an",
-        str(output_path)
+        str(temporary_output)
     ]
     
     returncode, stdout, stderr = run_ffmpeg(cmd)
@@ -123,7 +143,7 @@ def ensure_constant_frame_rate(
                 "-preset", "ultrafast",
                 "-crf", "23",
                 "-an",
-                str(output_path)
+                str(temporary_output)
             ]
             returncode, stdout, stderr = run_ffmpeg(cmd_fallback)
             if returncode != 0:
@@ -131,5 +151,9 @@ def ensure_constant_frame_rate(
         else:
             # Raise the original error
             raise subprocess.CalledProcessError(returncode, cmd, output=stdout, stderr=stderr)
-            
+
+    if not is_complete_video(temporary_output):
+        temporary_output.unlink(missing_ok=True)
+        raise RuntimeError("ffmpeg returned success but the CFR output is incomplete or has the wrong frame rate.")
+    os.replace(temporary_output, output_path)
     return output_path

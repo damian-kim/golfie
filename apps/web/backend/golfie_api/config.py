@@ -8,6 +8,7 @@ scripts (scripts/process_shot.py) and the API agree on one location.
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 # golfie_api/config.py -> golfie_api -> backend -> web -> apps -> <repo root>
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -16,6 +17,9 @@ DATA_DIR = REPO_ROOT / "data"
 SHOTS_DIR = DATA_DIR / "shots"
 SAMPLE_SESSIONS_DIR = DATA_DIR / "sample_sessions"
 CALIBRATION_DIR = DATA_DIR / "calibration"
+RUNTIME_DIR = DATA_DIR / "runtime"
+TEMP_DIR = Path(os.environ.get("GOLFIE_TEMP_DIR", RUNTIME_DIR / "tmp"))
+CALIBRATION_LOG_PATH = RUNTIME_DIR / "calibration.log"
 
-for _dir in (SHOTS_DIR, SAMPLE_SESSIONS_DIR, CALIBRATION_DIR):
+for _dir in (SHOTS_DIR, SAMPLE_SESSIONS_DIR, CALIBRATION_DIR, RUNTIME_DIR, TEMP_DIR):
     _dir.mkdir(parents=True, exist_ok=True)

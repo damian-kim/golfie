@@ -104,3 +104,21 @@ def test_fit_initial_conditions_insufficient_points():
     ]
     with pytest.raises(ValueError, match="fitting requires at least 3 points"):
         fit_initial_conditions(measured_points)
+
+
+def test_fit_initial_conditions_normalizes_absolute_video_time():
+    params = FlightParams(drag_enabled=True, lift_enabled=False)
+    flight = simulate_from_launch_conditions(48.0, 13.0, 1.0, params=params)
+    measured_points = [
+        TrackedPoint3D(
+            time_seconds=87.0 + sample.time_s,
+            x_m=sample.position_m[0],
+            y_m=sample.position_m[1],
+            z_m=sample.position_m[2],
+            confidence=0.95,
+        )
+        for sample in flight.samples[:60:6]
+    ]
+    result = fit_initial_conditions(measured_points)
+    assert np.linalg.norm(result.initial_velocity_mps) == pytest.approx(48.0, abs=0.5)
+    assert result.residual_rms_m < 0.01

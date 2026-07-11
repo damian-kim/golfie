@@ -151,9 +151,9 @@ export function ProcessingPage() {
           {STAGES.map((stage, idx) => {
             let statusText = "PENDING";
             let color = "var(--color-muted-dim)";
-            let isCurrent = idx === activeIndex && !done && !error;
-            let isCompleted = idx < activeIndex || done;
-            let isFailed = idx === activeIndex && error;
+            const isCurrent = idx === activeIndex && !done && !error;
+            const isCompleted = idx < activeIndex || done;
+            const isFailed = idx === activeIndex && error;
 
             if (isCompleted) {
               statusText = "COMPLETED";

@@ -53,11 +53,28 @@ export interface CameraCapture {
 }
 
 export interface CalibrationResult {
+  calibration_version: number;
   coordinate_system: unknown | null;
   camera_a_intrinsics: number[][] | null;
   camera_b_intrinsics: number[][] | null;
   camera_a_extrinsics: number[][] | null;
   camera_b_extrinsics: number[][] | null;
+  camera_a_distortion: number[];
+  camera_b_distortion: number[];
+  camera_a_image_size: [number, number] | null;
+  camera_b_image_size: [number, number] | null;
+  stereo_rotation: number[][] | null;
+  stereo_translation_m: number[] | null;
+  essential_matrix: number[][] | null;
+  fundamental_matrix: number[][] | null;
+  intrinsic_error_a_px: number | null;
+  intrinsic_error_b_px: number | null;
+  epipolar_error_median_px: number | null;
+  epipolar_error_p95_px: number | null;
+  epipolar_inlier_ratio: number | null;
+  baseline_m: number | null;
+  validation_frame_count: number;
+  validation_warnings: string[];
   reprojection_error_px: number | null;
   confidence: number;
   calibration_target: string | null;

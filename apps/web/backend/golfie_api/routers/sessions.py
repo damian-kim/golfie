@@ -19,6 +19,8 @@ Added beyond the spec's literal list, because the frontend needs them:
 from __future__ import annotations
 
 import shutil
+import threading
+from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +36,7 @@ from golfie_api.storage import SessionNotFoundError, session_store
 from golfie_api.config import CALIBRATION_DIR
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+_processing_locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
 
 
 class CreateSessionRequest(BaseModel):
@@ -148,12 +151,7 @@ async def upload_camera_b(
 
 @router.post("/{session_id}/calibration", response_model=Session)
 def set_calibration(session_id: str, calibration: CalibrationResult) -> Session:
-    """For v0 this just stores whatever CalibrationResult the client sends
-    (e.g. a manually-entered or externally-computed one via
-    scripts/calibrate_cameras.py). Real automatic calibration is
-    Milestone 1; golfie_cv.calibration currently raises NotImplementedError
-    if called directly.
-    """
+    """Attach an externally computed or manually reviewed calibration."""
     session = _get_session_or_404(session_id)
     session.calibration = calibration
     session_store.save(session)
@@ -162,26 +160,36 @@ def set_calibration(session_id: str, calibration: CalibrationResult) -> Session:
 
 @router.post("/{session_id}/process", response_model=Session)
 def process_session(session_id: str) -> Session:
-    session = _get_session_or_404(session_id)
+    # React StrictMode intentionally re-runs mount effects in development.
+    # Serializing by session makes POST /process idempotent and prevents two
+    # ffmpeg/OpenCV pipelines from writing the same artifacts concurrently.
+    with _processing_locks[session_id]:
+        session = _get_session_or_404(session_id)
+        if session.stage.value == "done" and session.shot is not None:
+            return session
     
-    # Auto-attach active calibration if it is missing and exists
-    if session.calibration is None:
-        active_cal_path = CALIBRATION_DIR / "active_calibration.json"
-        if active_cal_path.exists():
-            try:
-                calibration = CalibrationResult.model_validate_json(active_cal_path.read_text())
-                session.calibration = calibration
-            except Exception:
-                pass
+        # Auto-attach active calibration if it is missing and exists
+        if session.calibration is None:
+            active_cal_path = CALIBRATION_DIR / "active_calibration.json"
+            if active_cal_path.exists():
+                try:
+                    calibration = CalibrationResult.model_validate_json(active_cal_path.read_text())
+                    session.calibration = calibration
+                except Exception:
+                    pass
 
-    try:
-        session = advance_through_placeholder_stages(session)
-    except PipelineError as exc:
-        session.error = str(exc)
+        try:
+            session.error = None
+            session = advance_through_placeholder_stages(session)
+        except PipelineError as exc:
+            from golfie_core.schemas import ProcessingStage
+
+            session.error = str(exc)
+            session.stage = ProcessingStage.FAILED
+            session_store.save(session)
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         session_store.save(session)
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    session_store.save(session)
-    return session
+        return session
 
 
 @router.get("/{session_id}/status")
@@ -266,10 +274,39 @@ def get_frame_map(session_id: str, camera_id: str) -> dict:
         )
 
 
+@router.get("/{session_id}/artifacts")
+def get_artifacts(session_id: str) -> dict:
+    """Report optional render artifacts separately from shot-processing status."""
+    _get_session_or_404(session_id)
+    session_dir = session_store.session_dir(session_id)
+
+    def exists(name: str) -> bool:
+        path = session_dir / name
+        return path.exists() and path.stat().st_size > 0
+
+    outlines = {
+        "camera_a": exists("camera_a_stripped.mp4"),
+        "camera_b": exists("camera_b_stripped.mp4"),
+    }
+    outline_ready = all(outlines.values())
+    return {
+        "outline_videos": outlines,
+        "outline_ready": outline_ready,
+        "outline_unavailable_reason": None if outline_ready else (
+            "Swing-outline rendering is optional and was disabled or did not complete. "
+            "Set GOLFIE_RENDER_OUTLINES=1 before processing to generate both videos."
+        ),
+        "ball_selection_replays": {
+            "camera_a": exists("camera_a_ball_replay.mp4"),
+            "camera_b": exists("camera_b_ball_replay.mp4"),
+        },
+    }
+
+
 @router.get("/{session_id}/logs", response_model=list[str])
 def get_session_logs(session_id: str) -> list[str]:
     _get_session_or_404(session_id)
-    log_path = Path(r"E:\Golfie\golfie\progress.log")
+    log_path = session_store.session_dir(session_id) / "processing.log"
     if not log_path.exists():
         return []
     
@@ -277,14 +314,11 @@ def get_session_logs(session_id: str) -> list[str]:
     try:
         with log_path.open("r", encoding="utf-8") as f:
             for line in f:
-                if f"Session {session_id}:" in line:
-                    parts = line.split(f"Session {session_id}:", 1)
-                    if len(parts) == 2:
-                        session_logs.append(parts[1].strip())
+                marker = f"Session {session_id}:"
+                session_logs.append(line.split(marker, 1)[-1].strip())
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to read session logs: {e}"
         )
     return session_logs
-

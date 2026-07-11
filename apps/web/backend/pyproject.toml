@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "golfie-core",
     "golfie-cv",
+    "golfie-physics",
     "golfie-render",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",

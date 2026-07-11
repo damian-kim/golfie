@@ -1,8 +1,8 @@
 """Fit physics parameters (initial velocity, optionally spin) to measured
 early 3D trajectory points.
 
-STATUS: stub. Implemented in Milestone 7 (spec section 13 "Fitting" / spec
-section 20).
+Fits launch position and velocity to early world-frame measurements using a
+constrained drag-enabled flight model.
 """
 
 from __future__ import annotations
@@ -22,9 +22,15 @@ class FitResult:
     params: FlightParams
     residual_rms_m: float
     confidence: float
+    optimizer_success: bool = True
+    optimizer_message: str = ""
+    active_bounds: tuple[str, ...] = ()
 
 
-def fit_initial_conditions(measured_points: list[TrackedPoint3D]) -> FitResult:
+def fit_initial_conditions(
+    measured_points: list[TrackedPoint3D],
+    time_origin_seconds: float | None = None,
+) -> FitResult:
     """Fit launch position/velocity (and optionally drag/lift coefficients
     within realistic bounds) to a short early-flight 3D point sequence.
 
@@ -42,7 +48,16 @@ def fit_initial_conditions(measured_points: list[TrackedPoint3D]) -> FitResult:
             f"Trajectory fitting requires at least 3 points, got {len(measured_points)}."
         )
 
-    t_meas = np.array([p.time_seconds for p in measured_points], dtype=np.float64)
+    t_absolute = np.array([p.time_seconds for p in measured_points], dtype=np.float64)
+    if np.any(np.diff(t_absolute) <= 0):
+        raise ValueError("Trajectory timestamps must be strictly increasing.")
+    # Synthetic/launch-relative tracks begin near t=0. Real video timestamps
+    # can be minutes into a recording, so callers provide a local origin.
+    if time_origin_seconds is None:
+        time_origin_seconds = 0.0 if t_absolute[0] < 5.0 else float(t_absolute[0])
+    t_meas = t_absolute - float(time_origin_seconds)
+    if np.any(t_meas < -1e-7):
+        raise ValueError("Physics time origin cannot be after the first measured point.")
 
     x_meas = np.array([p.x_m for p in measured_points], dtype=np.float64)
     y_meas = np.array([p.y_m for p in measured_points], dtype=np.float64)
@@ -59,14 +74,19 @@ def fit_initial_conditions(measured_points: list[TrackedPoint3D]) -> FitResult:
     else:
         vel_guess = np.array([30.0, 0.0, 10.0], dtype=np.float64)
 
-    # Estimate starting position at t=0.0 by back-projecting the first measured point
-    pos_guess = np.array([x_meas[0], y_meas[0], z_meas[0]], dtype=np.float64) - vel_guess * t_meas[0]
+    # Estimate state at the chosen local time origin.
+    pos_guess = (
+        np.array([x_meas[0], y_meas[0], z_meas[0]], dtype=np.float64)
+        - vel_guess * t_meas[0]
+    )
 
     theta0 = np.concatenate([pos_guess, vel_guess])
 
-    # Boundaries (constrained to tee area at t=0.0)
-    lower_bounds = [-0.2, -0.2, -0.1, 0.0, -30.0, -10.0]
-    upper_bounds = [0.2, 0.2, 0.1, 95.0, 30.0, 50.0]
+    # Keep the initial state near the first triangulated point while allowing
+    # measurement noise.  Tee/world alignment is a separate calibration step;
+    # hard-coding the origin here made absolute video timestamps impossible.
+    lower_bounds = [pos_guess[0] - 0.5, pos_guess[1] - 0.5, pos_guess[2] - 0.5, -95.0, -60.0, -50.0]
+    upper_bounds = [pos_guess[0] + 0.5, pos_guess[1] + 0.5, pos_guess[2] + 0.5, 95.0, 60.0, 60.0]
     theta0 = np.clip(theta0, lower_bounds, upper_bounds)
 
     params = FlightParams(drag_enabled=True, lift_enabled=False)
@@ -116,10 +136,23 @@ def fit_initial_conditions(measured_points: list[TrackedPoint3D]) -> FitResult:
     confidence = max(0.0, 1.0 - rms / 0.05)
     confidence *= min(1.0, len(measured_points) / 5.0)
 
+    parameter_names = ("x0", "y0", "z0", "vx", "vy", "vz")
+    active_bounds = tuple(
+        name
+        for name, value, lower, upper in zip(
+            parameter_names, theta_opt, lower_bounds, upper_bounds
+        )
+        if np.isclose(value, lower, atol=1e-4, rtol=0.0)
+        or np.isclose(value, upper, atol=1e-4, rtol=0.0)
+    )
+
     return FitResult(
         initial_position_m=theta_opt[:3],
         initial_velocity_mps=theta_opt[3:],
         params=params,
         residual_rms_m=rms,
         confidence=float(confidence),
+        optimizer_success=bool(opt_res.success),
+        optimizer_message=str(opt_res.message),
+        active_bounds=active_bounds,
     )

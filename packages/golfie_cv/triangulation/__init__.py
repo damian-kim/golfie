@@ -1,43 +1,138 @@
-"""2D-to-3D triangulation of paired, synced ball detections.
+"""Calibrated stereo triangulation for synchronized 2D ball tracks.
 
-STATUS: stub. Implemented in Milestone 5 (spec section 20 / spec section 11).
+All triangulation is performed from undistorted normalized image rays.  Raw
+pixel coordinates are used only for final reprojection diagnostics.  This is
+important for phone cameras, where ignoring lens distortion can move a point
+many pixels near the edge of the image.
 """
 
 from __future__ import annotations
 
+import cv2
+import numpy as np
+
+from golfie_core.coordinates import CoordinateTransformer
 from golfie_core.schemas import CalibrationResult, TrackedPoint2D, TrackedPoint3D
+
+
+def _as_extrinsic(value: list[list[float]]) -> np.ndarray:
+    ext = np.asarray(value, dtype=np.float64)
+    if ext.shape == (4, 4):
+        return ext[:3, :]
+    if ext.shape == (3, 4):
+        return ext
+    raise ValueError(f"Camera extrinsics must be 3x4 or 4x4, got {ext.shape}.")
+
+
+def _positive_median_step(points: list[TrackedPoint2D]) -> float:
+    times = np.asarray(sorted({float(p.time_seconds) for p in points}), dtype=np.float64)
+    if len(times) < 2:
+        return 1.0 / 240.0
+    steps = np.diff(times)
+    steps = steps[steps > 1e-7]
+    return float(np.median(steps)) if len(steps) else 1.0 / 240.0
+
+
+def _match_by_time(
+    track_a: list[TrackedPoint2D], track_b: list[TrackedPoint2D]
+) -> list[tuple[TrackedPoint2D, float, float, float]]:
+    """Interpolate B at A timestamps without spanning missing video frames."""
+    a = sorted(track_a, key=lambda p: p.time_seconds)
+    b = sorted(track_b, key=lambda p: p.time_seconds)
+    if not a or not b:
+        return []
+
+    step_a = _positive_median_step(a)
+    step_b = _positive_median_step(b)
+    nearest_limit = 0.75 * max(step_a, step_b)
+    interpolation_span_limit = 2.5 * step_b
+    times_b = np.asarray([p.time_seconds for p in b], dtype=np.float64)
+    overlap_start = max(a[0].time_seconds, b[0].time_seconds)
+    overlap_end = min(a[-1].time_seconds, b[-1].time_seconds)
+    if overlap_end < overlap_start:
+        return []
+
+    matches: list[tuple[TrackedPoint2D, float, float, float]] = []
+    for pa in a:
+        t = float(pa.time_seconds)
+        if t < overlap_start - 1e-9 or t > overlap_end + 1e-9:
+            continue
+        idx = int(np.searchsorted(times_b, t))
+
+        # Exact/near-exact endpoint matches should not require a bracket.
+        nearest = []
+        if idx < len(b):
+            nearest.append(b[idx])
+        if idx > 0:
+            nearest.append(b[idx - 1])
+        if nearest:
+            pb = min(nearest, key=lambda p: abs(p.time_seconds - t))
+            if abs(pb.time_seconds - t) <= max(nearest_limit, 1e-5):
+                matches.append((pa, pb.x_px, pb.y_px, pb.confidence))
+                continue
+
+        if 0 < idx < len(b):
+            lo, hi = b[idx - 1], b[idx]
+            span = float(hi.time_seconds - lo.time_seconds)
+            if 1e-7 < span <= interpolation_span_limit:
+                alpha = (t - lo.time_seconds) / span
+                if 0.0 <= alpha <= 1.0:
+                    matches.append(
+                        (
+                            pa,
+                            float(lo.x_px + alpha * (hi.x_px - lo.x_px)),
+                            float(lo.y_px + alpha * (hi.y_px - lo.y_px)),
+                            float(lo.confidence + alpha * (hi.confidence - lo.confidence)),
+                        )
+                    )
+    return matches
+
+
+def _relative_pose(ext_a: np.ndarray, ext_b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return the transform X_b = R_ba X_a + t_ba."""
+    ra, ta = ext_a[:, :3], ext_a[:, 3]
+    rb, tb = ext_b[:, :3], ext_b[:, 3]
+    r_ba = rb @ ra.T
+    t_ba = tb - r_ba @ ta
+    return r_ba, t_ba
+
+
+def _normalized_epipolar_errors(
+    points_a: np.ndarray,
+    points_b: np.ndarray,
+    essential: np.ndarray,
+    focal_scale: float,
+) -> np.ndarray:
+    xa = np.column_stack([points_a, np.ones(len(points_a))])
+    xb = np.column_stack([points_b, np.ones(len(points_b))])
+    lines_b = (essential @ xa.T).T
+    lines_a = (essential.T @ xb.T).T
+    numerator = np.abs(np.sum(xb * lines_b, axis=1))
+    distance_b = numerator / np.maximum(np.linalg.norm(lines_b[:, :2], axis=1), 1e-12)
+    distance_a = numerator / np.maximum(np.linalg.norm(lines_a[:, :2], axis=1), 1e-12)
+    return 0.5 * (distance_a + distance_b) * focal_scale
+
+
+def _project_pixels(
+    points_rig: np.ndarray,
+    ext: np.ndarray,
+    camera_matrix: np.ndarray,
+    distortion: np.ndarray | None,
+) -> np.ndarray:
+    rvec, _ = cv2.Rodrigues(ext[:, :3])
+    projected, _ = cv2.projectPoints(
+        points_rig.reshape(-1, 1, 3), rvec, ext[:, 3], camera_matrix, distortion
+    )
+    return projected.reshape(-1, 2)
 
 
 def triangulate_track(
     track_a: list[TrackedPoint2D],
     track_b: list[TrackedPoint2D],
     calibration: CalibrationResult,
+    epipolar_limit_px: float | None = None,
 ) -> list[TrackedPoint3D]:
-    """Triangulate paired 2D tracks into a 3D point sequence.
-
-    Spec section 11. Expected implementation: cv2.triangulatePoints (or
-    a direct linear triangulation + nonlinear refinement) per matched
-    frame pair, followed by reprojection-error filtering, physically
-    plausible speed/acceleration filtering, and temporal smoothing.
-    Optionally a full bundle adjustment over the whole trajectory.
-    Requires `calibration.is_valid` -- callers should check that before
-    calling this so failures are diagnosable (missing/garbage
-    calibration vs. a triangulation bug).
-    """
-    import cv2
-    import numpy as np
-    from golfie_core.coordinates import CoordinateTransformer
-    from datetime import datetime
-
-    def log_tri(msg):
-        print(msg)
-        try:
-            with open(r"E:\Golfie\golfie\progress.log", "a", encoding="utf-8") as f_log:
-                f_log.write(f"[{datetime.now().isoformat()}] [Triangulation] {msg}\n")
-        except Exception:
-            pass
-
-    # 1. Validation
+    """Triangulate synchronized tracks after timing and epipolar validation."""
     if not calibration.is_valid:
         raise ValueError("Calibration is not valid.")
     if calibration.camera_a_intrinsics is None or calibration.camera_b_intrinsics is None:
@@ -45,262 +140,129 @@ def triangulate_track(
     if calibration.camera_a_extrinsics is None or calibration.camera_b_extrinsics is None:
         raise ValueError("Missing camera extrinsics in calibration.")
 
-    # 2. Extract matrices
-    K_a = np.array(calibration.camera_a_intrinsics, dtype=np.float64)
-    K_b = np.array(calibration.camera_b_intrinsics, dtype=np.float64)
-    ext_a = np.array(calibration.camera_a_extrinsics, dtype=np.float64)
-    ext_b = np.array(calibration.camera_b_extrinsics, dtype=np.float64)
-
-    # Reconstruct projection matrices: P = K * [R | T]
-    # Calibration extrinsics are 4x4 world-to-camera matrices.
-    P_a = K_a @ ext_a[:3, :]
-    P_b = K_b @ ext_b[:3, :]
-
-    # 3. Time-based matching with linear interpolation
-    #
-    # The old approach matched by exact frame_index equality, which almost
-    # never works when the two cameras have different recording start times
-    # and the sync offset is a large non-integer number of frames.
-    #
-    # New approach: for each point in track_a, find the closest point(s) in
-    # track_b by time_seconds and interpolate track_b's 2D position to
-    # track_a's exact timestamp.
-
-    if not track_a or not track_b:
-        log_tri("\n--- TRIANGULATION DEBUG ---")
-        log_tri(f"  Empty track(s): track_a={len(track_a)}, track_b={len(track_b)}")
+    matches = _match_by_time(track_a, track_b)
+    if not matches:
         return []
 
-    # Sort tracks by time for binary search
-    sorted_a = sorted(track_a, key=lambda p: p.time_seconds)
-    sorted_b = sorted(track_b, key=lambda p: p.time_seconds)
+    ka = np.asarray(calibration.camera_a_intrinsics, dtype=np.float64)
+    kb = np.asarray(calibration.camera_b_intrinsics, dtype=np.float64)
+    da_values = np.asarray(calibration.camera_a_distortion or [], dtype=np.float64)
+    db_values = np.asarray(calibration.camera_b_distortion or [], dtype=np.float64)
+    da = da_values if da_values.size else None
+    db = db_values if db_values.size else None
+    ext_a = _as_extrinsic(calibration.camera_a_extrinsics)
+    ext_b = _as_extrinsic(calibration.camera_b_extrinsics)
 
-    times_b = np.array([p.time_seconds for p in sorted_b])
+    raw_a = np.asarray([[m[0].x_px, m[0].y_px] for m in matches], dtype=np.float64)
+    raw_b = np.asarray([[m[1], m[2]] for m in matches], dtype=np.float64)
+    norm_a = cv2.undistortPoints(raw_a.reshape(-1, 1, 2), ka, da).reshape(-1, 2)
+    norm_b = cv2.undistortPoints(raw_b.reshape(-1, 1, 2), kb, db).reshape(-1, 2)
 
-    # Maximum time gap to allow for matching.
-    # Camera A runs at 30fps (33ms between frames), so we need at least
-    # one full frame interval to find matching pairs across cameras.
-    MAX_TIME_GAP = 1.0 / 30.0  # ~33ms (one frame at 30fps)
+    r_ba, t_ba = _relative_pose(ext_a, ext_b)
+    tx = np.array(
+        [[0.0, -t_ba[2], t_ba[1]], [t_ba[2], 0.0, -t_ba[0]], [-t_ba[1], t_ba[0], 0.0]],
+        dtype=np.float64,
+    )
+    essential = tx @ r_ba
+    focal_scale = float(np.mean([ka[0, 0], ka[1, 1], kb[0, 0], kb[1, 1]]))
+    epipolar_errors = _normalized_epipolar_errors(norm_a, norm_b, essential, focal_scale)
+    calibration_p95 = calibration.epipolar_error_p95_px
+    # Compact board corners should remain near the calibration p95, but a
+    # 240-fps ball can be a 100px exposure streak. Its centroid can sit 10-15px
+    # from the line even when the line crosses the observed streak. Admit that
+    # bounded uncertainty, then refine the correspondence onto the epipolar
+    # manifold and validate the whole physical trajectory downstream.
+    default_epipolar_limit = (
+        3.0 if calibration_p95 is None
+        else float(np.clip(2.0 * calibration_p95, 2.0, 5.0))
+    )
+    epipolar_limit = (
+        default_epipolar_limit if epipolar_limit_px is None
+        else float(max(default_epipolar_limit, epipolar_limit_px))
+    )
+    geometry_mask = epipolar_errors <= epipolar_limit
+    if not np.any(geometry_mask):
+        raise ValueError(
+            "No time-matched detections satisfy the stereo geometry: "
+            f"median epipolar error {float(np.median(epipolar_errors)):.2f}px, "
+            f"minimum {float(np.min(epipolar_errors)):.2f}px, limit {epipolar_limit:.2f}px. "
+            "Check calibration compatibility, synchronization, and the selected 2D tracks."
+        )
 
-    matched_pairs: list[tuple[TrackedPoint2D, float, float, float]] = []
-    # Each entry: (pt_a, interp_x_b, interp_y_b, interp_conf_b)
+    selected_indices = np.flatnonzero(geometry_mask)
+    norm_a_selected = norm_a[geometry_mask]
+    norm_b_selected = norm_b[geometry_mask]
+    corrected_a, corrected_b = cv2.correctMatches(
+        essential,
+        norm_a_selected.reshape(1, -1, 2),
+        norm_b_selected.reshape(1, -1, 2),
+    )
+    norm_a_selected = corrected_a.reshape(-1, 2)
+    norm_b_selected = corrected_b.reshape(-1, 2)
+    # Normalized observations pair with extrinsic-only projection matrices.
+    homogeneous = cv2.triangulatePoints(
+        ext_a, ext_b, norm_a_selected.T, norm_b_selected.T
+    )
+    safe_w = np.where(np.abs(homogeneous[3]) < 1e-12, np.nan, homogeneous[3])
+    points_rig = (homogeneous[:3] / safe_w).T
 
-    log_tri("\n--- TRIANGULATION DEBUG ---")
-    log_tri(f"  Track A: {len(sorted_a)} pts, time range [{sorted_a[0].time_seconds:.4f}s, {sorted_a[-1].time_seconds:.4f}s]")
-    log_tri(f"  Track B: {len(sorted_b)} pts, time range [{sorted_b[0].time_seconds:.4f}s, {sorted_b[-1].time_seconds:.4f}s]")
+    projected_a = _project_pixels(points_rig, ext_a, ka, da)
+    projected_b = _project_pixels(points_rig, ext_b, kb, db)
+    reproj_a = np.linalg.norm(projected_a - raw_a[geometry_mask], axis=1)
+    reproj_b = np.linalg.norm(projected_b - raw_b[geometry_mask], axis=1)
+    reprojection_errors = 0.5 * (reproj_a + reproj_b)
+    reprojection_limit = 12.0 if epipolar_limit_px is not None else float(
+        np.clip(1.5 * epipolar_limit, 3.0, 6.0)
+    )
 
-    # Compute the overlapping time window
-    t_start = max(sorted_a[0].time_seconds, sorted_b[0].time_seconds)
-    t_end = min(sorted_a[-1].time_seconds, sorted_b[-1].time_seconds)
-    overlap = t_end - t_start
-    log_tri(f"  Time overlap: {overlap:.4f}s ({t_start:.4f}s to {t_end:.4f}s)")
+    ra, ta = ext_a[:, :3], ext_a[:, 3]
+    rb, tb = ext_b[:, :3], ext_b[:, 3]
+    center_a = -ra.T @ ta
+    center_b = -rb.T @ tb
+    transformer = (
+        CoordinateTransformer.from_coordinate_system(calibration.coordinate_system)
+        if calibration.coordinate_system is not None
+        else CoordinateTransformer.identity()
+    )
 
-    if overlap <= 0:
-        log_tri("  ERROR: No temporal overlap between tracks! Sync offset may be wrong.")
-        return []
-
-    for pt_a in sorted_a:
-        t_a = pt_a.time_seconds
-
-        # Skip points outside the overlap region
-        if t_a < t_start - MAX_TIME_GAP or t_a > t_end + MAX_TIME_GAP:
+    result: list[TrackedPoint3D] = []
+    for local_idx, source_idx in enumerate(selected_indices):
+        point = points_rig[local_idx]
+        if not np.all(np.isfinite(point)):
+            continue
+        depth_a = float((ext_a[:, :3] @ point + ext_a[:, 3])[2])
+        depth_b = float((ext_b[:, :3] @ point + ext_b[:, 3])[2])
+        if depth_a <= 0.05 or depth_b <= 0.05:
             continue
 
-        # Find the insertion point in sorted_b times
-        idx = np.searchsorted(times_b, t_a)
-
-        # Consider the two nearest neighbours: idx-1 and idx
-        best_interp = None
-        best_dt = float("inf")
-
-        # Case 1: Exact or near-exact match at idx
-        if idx < len(sorted_b):
-            dt = abs(sorted_b[idx].time_seconds - t_a)
-            if dt < best_dt:
-                best_dt = dt
-                best_interp = (sorted_b[idx].x_px, sorted_b[idx].y_px, sorted_b[idx].confidence)
-
-        # Case 2: Exact or near-exact match at idx-1
-        if idx > 0:
-            dt = abs(sorted_b[idx - 1].time_seconds - t_a)
-            if dt < best_dt:
-                best_dt = dt
-                best_interp = (sorted_b[idx - 1].x_px, sorted_b[idx - 1].y_px, sorted_b[idx - 1].confidence)
-
-        # Case 3: Linear interpolation between idx-1 and idx
-        if 0 < idx < len(sorted_b):
-            pb_lo = sorted_b[idx - 1]
-            pb_hi = sorted_b[idx]
-            dt_span = pb_hi.time_seconds - pb_lo.time_seconds
-            if 0 < dt_span <= 0.1:  # Sanity: don't interpolate over gaps > 100ms
-                alpha = (t_a - pb_lo.time_seconds) / dt_span
-                if 0.0 <= alpha <= 1.0:
-                    interp_x = pb_lo.x_px + alpha * (pb_hi.x_px - pb_lo.x_px)
-                    interp_y = pb_lo.y_px + alpha * (pb_hi.y_px - pb_lo.y_px)
-                    interp_conf = pb_lo.confidence + alpha * (pb_hi.confidence - pb_lo.confidence)
-                    # Interpolation is always better than nearest-neighbor
-                    # if the point falls between two track_b samples
-                    best_interp = (interp_x, interp_y, interp_conf)
-                    best_dt = 0.0  # Interpolated = effectively zero temporal error
-
-        if best_interp is not None and best_dt <= MAX_TIME_GAP:
-            matched_pairs.append((pt_a, best_interp[0], best_interp[1], best_interp[2]))
-
-    log_tri(f"  Time-matched pairs: {len(matched_pairs)}")
-
-    if not matched_pairs:
-        log_tri("  ERROR: No time-matched pairs found!")
-        # Print sample timestamps for debugging
-        for i, pt in enumerate(sorted_a[:5]):
-            log_tri(f"    Track A sample [{i}]: frame={pt.frame_index}, t={pt.time_seconds:.4f}s")
-        for i, pt in enumerate(sorted_b[:5]):
-            log_tri(f"    Track B sample [{i}]: frame={pt.frame_index}, t={pt.time_seconds:.4f}s")
-        return []
-
-    # Print first few matched pairs for debugging
-    for i, (pt_a, bx, by, bc) in enumerate(matched_pairs[:5]):
-        log_tri(f"    Pair [{i}]: t={pt_a.time_seconds:.4f}s, A=({pt_a.x_px:.1f}, {pt_a.y_px:.1f}), B=({bx:.1f}, {by:.1f})")
-
-    # 4. Form coordinate matrices from matched pairs
-    n_pairs = len(matched_pairs)
-    pts_a_np = np.zeros((2, n_pairs), dtype=np.float64)
-    pts_b_np = np.zeros((2, n_pairs), dtype=np.float64)
-
-    for idx, (pt_a, bx, by, _bc) in enumerate(matched_pairs):
-        pts_a_np[0, idx] = pt_a.x_px
-        pts_a_np[1, idx] = pt_a.y_px
-        pts_b_np[0, idx] = bx
-        pts_b_np[1, idx] = by
-
-    # 5. Triangulate points
-    points_homogeneous = cv2.triangulatePoints(P_a, P_b, pts_a_np, pts_b_np)
-    
-    # Avoid division by zero
-    w = points_homogeneous[3, :]
-    w_safe = np.where(np.abs(w) < 1e-9, 1e-9, w)
-    points_3d_rig = points_homogeneous[:3, :] / w_safe
-
-    # 6. Calculate reprojection errors
-    pts_3d_hom = np.vstack([points_3d_rig, np.ones(points_3d_rig.shape[1])])
-    
-    proj_a_hom = P_a @ pts_3d_hom
-    proj_b_hom = P_b @ pts_3d_hom
-
-    u_a_proj = proj_a_hom[0, :] / np.where(np.abs(proj_a_hom[2, :]) < 1e-9, 1e-9, proj_a_hom[2, :])
-    v_a_proj = proj_a_hom[1, :] / np.where(np.abs(proj_a_hom[2, :]) < 1e-9, 1e-9, proj_a_hom[2, :])
-
-    u_b_proj = proj_b_hom[0, :] / np.where(np.abs(proj_b_hom[2, :]) < 1e-9, 1e-9, proj_b_hom[2, :])
-    v_b_proj = proj_b_hom[1, :] / np.where(np.abs(proj_b_hom[2, :]) < 1e-9, 1e-9, proj_b_hom[2, :])
-
-    errors_a = np.sqrt((u_a_proj - pts_a_np[0, :]) ** 2 + (v_a_proj - pts_a_np[1, :]) ** 2)
-    errors_b = np.sqrt((u_b_proj - pts_b_np[0, :]) ** 2 + (v_b_proj - pts_b_np[1, :]) ** 2)
-    reproj_errors = 0.5 * (errors_a + errors_b)
-
-    log_tri(f"  Reprojection errors: min={float(np.min(reproj_errors)):.2f}, median={float(np.median(reproj_errors)):.2f}, max={float(np.max(reproj_errors)):.2f} px")
-
-    # 7. Transform to world frame
-    if calibration.coordinate_system is not None:
-        transformer = CoordinateTransformer.from_coordinate_system(calibration.coordinate_system)
-    else:
-        transformer = CoordinateTransformer.identity()
-
-    points_3d_world = []
-    for i in range(points_3d_rig.shape[1]):
-        p_rig = points_3d_rig[:, i]
-        p_world = transformer.to_world(p_rig)
-        points_3d_world.append(p_world)
-
-    # 8. Filter by reprojection error and physical constraints
-    REPROJ_ERROR_THRESHOLD = 50.0  # px (relaxed to tolerate motion-blurred streak detections)
-    candidates_3d = []
-    rejected_reproj = 0
-    rejected_depth = 0
-
-    for idx, (pt_a, _bx, _by, bc) in enumerate(matched_pairs):
-        p_world = points_3d_world[idx]
-        p_rig = points_3d_rig[:, idx]
-        err = float(reproj_errors[idx])
-        
-        # Average time and geometric mean of confidence
-        t_sec = pt_a.time_seconds
-        conf = float(np.sqrt(pt_a.confidence * bc))
-
-        # Check reprojection error threshold
-        if err > REPROJ_ERROR_THRESHOLD:
-            rejected_reproj += 1
+        ray_a = point - center_a
+        ray_b = point - center_b
+        cosine = float(
+            np.dot(ray_a, ray_b)
+            / max(np.linalg.norm(ray_a) * np.linalg.norm(ray_b), 1e-12)
+        )
+        parallax_deg = float(np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))))
+        if parallax_deg < 0.25 or reprojection_errors[local_idx] > reprojection_limit:
             continue
 
-        # Check positive depth check (must be in front of both cameras)
-        # For Camera A: depth is p_rig[2]
-        # For Camera B: depth is the 3rd coordinate of ext_b * p_rig
-        p_rig_hom = np.append(p_rig, 1.0)
-        p_cam_b = ext_b[:3, :] @ p_rig_hom
-        
-        if p_rig[2] <= 0.1 or p_cam_b[2] <= 0.1:
-            rejected_depth += 1
-            continue
-
-        candidates_3d.append(
+        pa, _bx, _by, confidence_b = matches[source_idx]
+        point_world = transformer.to_world(point)
+        geometry_confidence = float(np.exp(-reprojection_errors[local_idx] / reprojection_limit))
+        confidence = float(np.sqrt(pa.confidence * confidence_b) * geometry_confidence)
+        result.append(
             TrackedPoint3D(
-                time_seconds=t_sec,
-                x_m=float(p_world[0]),
-                y_m=float(p_world[1]),
-                z_m=float(p_world[2]),
-                confidence=conf,
-                reprojection_error_px=err,
+                time_seconds=float(pa.time_seconds),
+                x_m=float(point_world[0]),
+                y_m=float(point_world[1]),
+                z_m=float(point_world[2]),
+                confidence=confidence,
+                reprojection_error_px=float(reprojection_errors[local_idx]),
             )
         )
 
-    log_tri(f"  After reproj+depth filter: {len(candidates_3d)} pts (rejected: {rejected_reproj} reproj, {rejected_depth} depth)")
-
-    # Enforce velocity and acceleration constraints
-    filtered_3d: list[TrackedPoint3D] = []
-    rejected_speed = 0
-    rejected_accel = 0
-
-    for pt in candidates_3d:
-        if not filtered_3d:
-            filtered_3d.append(pt)
-            continue
-
-        prev = filtered_3d[-1]
-        dt = pt.time_seconds - prev.time_seconds
-        if dt <= 0:
-            continue
-
-        p_curr = np.array([pt.x_m, pt.y_m, pt.z_m])
-        p_prev = np.array([prev.x_m, prev.y_m, prev.z_m])
-        vel = (p_curr - p_prev) / dt
-        speed = float(np.linalg.norm(vel))
-
-        # Reject speed > 100 m/s
-        if speed > 100.0:
-            rejected_speed += 1
-            continue
-
-        # Check acceleration if we have at least 2 previous points
-        if len(filtered_3d) >= 2:
-            prev_prev = filtered_3d[-2]
-            dt_prev = prev.time_seconds - prev_prev.time_seconds
-            p_prev_prev = np.array([prev_prev.x_m, prev_prev.y_m, prev_prev.z_m])
-            vel_prev = (p_prev - p_prev_prev) / dt_prev
-
-            accel = (vel - vel_prev) / dt
-            accel_non_g = accel - np.array([0.0, 0.0, -9.8])
-            accel_mag = float(np.linalg.norm(accel_non_g))
-
-            # Reject non-gravitational acceleration > 150 m/s^2
-            if accel_mag > 150.0:
-                rejected_accel += 1
-                continue
-
-        filtered_3d.append(pt)
-
-    log_tri(f"  After velocity/accel filter: {len(filtered_3d)} pts (rejected: {rejected_speed} speed, {rejected_accel} accel)")
-
-    if filtered_3d:
-        # Print sample 3D points for debugging
-        for i, pt in enumerate(filtered_3d[:5]):
-            log_tri(f"    3D [{i}]: t={pt.time_seconds:.4f}s, pos=({pt.x_m:.3f}, {pt.y_m:.3f}, {pt.z_m:.3f})m, reproj={pt.reprojection_error_px:.2f}px")
-
-    return filtered_3d
+    if not result:
+        raise ValueError(
+            "Epipolar-consistent pairs were found, but all triangulated points failed "
+            f"depth/parallax/reprojection validation (reprojection limit {reprojection_limit:.2f}px)."
+        )
+    return result

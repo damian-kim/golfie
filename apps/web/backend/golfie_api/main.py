@@ -13,16 +13,14 @@ sys.path.insert(0, str(_root / "packages"))
 
 import os
 import tempfile
+from golfie_api.config import TEMP_DIR
 
-# Force temporary directories to the spacious E: drive to prevent "out of disk space" (C: drive is full)
-os.environ["TEMP"] = r"E:\temp"
-os.environ["TMP"] = r"E:\temp"
-os.environ["TMPDIR"] = r"E:\temp"
-tempfile.tempdir = r"E:\temp"
-try:
-    os.makedirs(r"E:\temp", exist_ok=True)
-except Exception:
-    pass
+# Keep large decoded/transcoded intermediates in a configurable repository
+# runtime directory instead of a developer-specific drive path.
+os.environ["TEMP"] = str(TEMP_DIR)
+os.environ["TMP"] = str(TEMP_DIR)
+os.environ["TMPDIR"] = str(TEMP_DIR)
+tempfile.tempdir = str(TEMP_DIR)
 
 import json
 
@@ -34,7 +32,7 @@ from golfie_api.routers import sessions_router, calibration_router
 
 app = FastAPI(
     title="Golfie API",
-    description="Dual-iPhone golf shot reconstruction and simulation backend (v0 / Milestone 0).",
+    description="Dual-iPhone golf shot reconstruction and simulation backend.",
     version="0.1.0",
 )
 
@@ -80,4 +78,3 @@ def sample_trajectory() -> dict:
     return json.loads(sample_path.read_text())
 
 # Trigger reload
-

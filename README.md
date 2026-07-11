@@ -4,12 +4,12 @@ Dual-iPhone golf shot reconstruction and simulation. See `docs/` and the
 original project spec for the full design; this README covers what
 exists today and how to run it.
 
-**Status: Milestone 0 (repository + basic web app).** Nothing below
-detects, tracks, triangulates, or estimates a real shot yet -- that's
-Milestones 1-7. What *is* real: video metadata extraction, the full
-session/upload/process API lifecycle, the RK4 ball-flight physics
-engine (gravity + drag + experimental Magnus lift), and a browser-based
-3D driving range that can render any trajectory this system produces.
+**Status: calibration/triangulation rescue MVP.** The repository now has
+a real, validation-gated ChArUco stereo calibration, stereo-aware ball
+tracking, distortion-corrected triangulation, launch fitting, and the
+original RK4/browser rendering path. Real footage is still sensitive to
+capture quality, so calibration and epipolar diagnostics are surfaced
+and bad geometry is rejected instead of being presented as a shot.
 
 ## Repository layout
 
@@ -85,11 +85,11 @@ pytest tests/ -v
 | Session storage, upload, API lifecycle | Real |
 | RK4 projectile physics (gravity + drag) | Real, validated against closed-form projectile motion |
 | Magnus lift | Implemented, but experimental/unvalidated -- off by default |
-| Camera calibration | Stub (Milestone 1) |
-| Video sync | Stub (Milestone 2) |
-| Ball detection/tracking | Stub (Milestones 3-4) |
-| Triangulation | Stub (Milestone 5) |
-| Launch parameter estimation / fitting | Stub (Milestones 6-7) |
+| Camera calibration | Implemented; full distortion model + held-out epipolar validation |
+| Video sync | Implemented; audio transient, with confidence gating |
+| Ball detection/tracking | Implemented MVP; joint stereo-aware hypothesis selection |
+| Triangulation | Implemented; undistorted rays, tight timing, epipolar/depth/parallax gates |
+| Launch parameter estimation / fitting | Implemented MVP; drag model, no spin estimation |
 | Every shot metric you'll see today | Honestly `not_available` (see `golfie_core.schemas.MetricValue`) |
 
 The one exception is the synthetic demo session
@@ -110,11 +110,12 @@ only reports what was actually read from the input videos.
   headless browser available); it's verified via `tsc -b`, `vite
   build`, `eslint`, and manual dev-server + API smoke tests instead.
 
-## Next recommended step
+## Capture requirements for the rescue MVP
 
-Milestone 1: intrinsic + stereo camera calibration
-(`golfie_cv.calibration`), starting with `scripts/calibrate_cameras.py`
-(not yet created) that takes a folder of ChArUco board images/video per
-camera and produces a `CalibrationResult` your real iPhone footage can
-actually use. That's the dependency every later milestone (sync uses
-fps already; triangulation needs calibration) is blocked on.
+- Use the exact same lens, orientation, resolution, and stabilization mode
+  for calibration and shot capture.
+- Camera A must be the upright down-the-line camera; Camera B is face-on.
+- Start both calibration recordings, make one sharp synchronization clap,
+  then move the board through varied angles, depths, and image positions.
+- A pre-v2 active calibration is intentionally rejected; recalibrate once
+  after updating so distortion and validation data are present.

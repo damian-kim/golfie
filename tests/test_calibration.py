@@ -107,7 +107,7 @@ def test_calibration_recovers_synthetic_parameters(tmp_path):
     # We will position camera B shifted relative to camera A
     # R_rel, T_rel: relative transform from A to B
     R_rel = cv2.Rodrigues(np.array([0.05, -0.1, 0.02], dtype=np.float32))[0]
-    T_rel = np.array([0.15, -0.02, 0.05], dtype=np.float32).reshape(3, 1)
+    T_rel = np.array([0.06, -0.01, 0.02], dtype=np.float32).reshape(3, 1)
 
     for idx, (rvec_a, tvec_a) in enumerate(poses):
         # Camera A warped image
@@ -226,4 +226,3 @@ def test_charuco_calibration_fallback_and_rotation(tmp_path):
     assert calib.reprojection_error_px < 1.0
     assert calib.fx == pytest.approx(600.0, abs=80.0)
     assert calib.fy == pytest.approx(600.0, abs=80.0)
-

@@ -68,6 +68,31 @@ export function ReviewPage() {
                   {session.calibration.reprojection_error_px?.toFixed(3) ?? "—"} px
                 </span>
               </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "var(--color-muted)" }}>Epipolar Error (median / p95)</span>
+                <span className="mono" style={{ color: "var(--color-ink)", fontWeight: "bold" }}>
+                  {session.calibration.epipolar_error_median_px?.toFixed(2) ?? "—"} / {session.calibration.epipolar_error_p95_px?.toFixed(2) ?? "—"} px
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "var(--color-muted)" }}>Baseline / Stereo Poses</span>
+                <span className="mono" style={{ color: "var(--color-ink)", fontWeight: "bold" }}>
+                  {session.calibration.baseline_m?.toFixed(3) ?? "—"} m / {session.calibration.validation_frame_count}
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "var(--color-muted)" }}>Epipolar Inliers (≤4 px)</span>
+                <span className="mono" style={{ color: "var(--color-ink)", fontWeight: "bold" }}>
+                  {session.calibration.epipolar_inlier_ratio == null
+                    ? "—"
+                    : `${(session.calibration.epipolar_inlier_ratio * 100).toFixed(1)}%`}
+                </span>
+              </div>
+              {session.calibration.validation_warnings.length > 0 && (
+                <div className="error-banner" style={{ margin: 0 }}>
+                  {session.calibration.validation_warnings.join(" ")}
+                </div>
+              )}
             </div>
           ) : (
             <p className="page__subtitle" style={{ margin: 0, color: "var(--color-muted-dim)" }}>

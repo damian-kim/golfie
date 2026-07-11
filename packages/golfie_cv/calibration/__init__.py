@@ -1,11 +1,8 @@
 """Camera calibration: intrinsics + stereo extrinsics + world alignment.
 
-STATUS: stub. Implemented in Milestone 1 (spec section 20).
-
-These function signatures are the contract the rest of the system will
-call against -- the backend's `/sessions/{id}/calibration` endpoint and
-`scripts/calibrate_cameras.py` are written to call these names, so
-filling them in later should not require touching call sites.
+Implements ChArUco/chessboard intrinsics plus validation-gated stereo
+extrinsics. The persisted result contains the complete lens model needed by
+triangulation, including distortion and calibrated image size.
 """
 
 from __future__ import annotations
@@ -141,7 +138,7 @@ def calibrate_intrinsics(
         elif board_type == "charuco":
             charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
             num_corners = len(charuco_corners) if charuco_corners is not None else 0
-            print(f"[Calibration Debug] Image {img_path.name}: detected {num_corners} ChArUco corners.")
+            print(f"[Calibration Debug] Image {Path(img_path).name}: detected {num_corners} ChArUco corners.")
             if charuco_corners is not None and len(charuco_corners) >= MIN_CHARUCO_CORNERS:
                 # Get the 3D coordinates of detected ChArUco corners
                 # board.getMatchPrediction (or manually matching charuco_ids to board.getChessboardCorners())
@@ -154,26 +151,41 @@ def calibrate_intrinsics(
 
     if not obj_points:
         raise ValueError(f"Could not detect any calibration board patterns in the provided images (board_type={board_type}).")
+    if len(obj_points) < 4:
+        raise ValueError(
+            f"Only {len(obj_points)} usable calibration views were found; at least 4 varied board poses are required."
+        )
 
     # Run calibration
     # Make object points and image points 32-bit floats
     obj_points = [np.array(p, dtype=np.float32) for p in obj_points]
     img_points = [np.array(p, dtype=np.float32) for p in img_points]
 
-    # Initialize camera matrix with square pixels and centered principal point
-    mtx_init = np.zeros((3, 3), dtype=np.float64)
-    mtx_init[0, 0] = 1.0
-    mtx_init[1, 1] = 1.0
-    mtx_init[0, 2] = image_size[0] / 2.0
-    mtx_init[1, 2] = image_size[1] / 2.0
-    mtx_init[2, 2] = 1.0
-
-    flags = cv2.CALIB_FIX_PRINCIPAL_POINT | cv2.CALIB_FIX_ASPECT_RATIO
-
     try:
         ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
-            obj_points, img_points, image_size, mtx_init, None, flags=flags
+            obj_points, img_points, image_size, None, None, flags=0
         )
+
+        # A few blurred or partially occluded frames can dominate an otherwise
+        # sound solve.  Perform one conservative robust re-fit using per-view
+        # reprojection errors.  Never prune below the minimum needed to
+        # constrain a useful intrinsic model.
+        if len(obj_points) >= 6:
+            view_errors = []
+            for obj, img, rvec, tvec in zip(obj_points, img_points, rvecs, tvecs):
+                projected, _ = cv2.projectPoints(obj, rvec, tvec, mtx, dist)
+                residual = projected.reshape(-1, 2) - img.reshape(-1, 2)
+                view_errors.append(float(np.sqrt(np.mean(np.sum(residual * residual, axis=1)))))
+            median = float(np.median(view_errors))
+            mad = float(np.median(np.abs(np.asarray(view_errors) - median)))
+            cutoff = max(1.5, median + 3.0 * max(mad, 0.05))
+            keep = [i for i, err in enumerate(view_errors) if err <= cutoff]
+            if 5 <= len(keep) < len(obj_points):
+                kept_obj = [obj_points[i] for i in keep]
+                kept_img = [img_points[i] for i in keep]
+                ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
+                    kept_obj, kept_img, image_size, None, None, flags=0
+                )
     except cv2.error as e:
         raise ValueError(
             f"OpenCV camera calibration failed: {str(e)}. This usually happens when "
@@ -210,6 +222,14 @@ def calibrate_stereo(
     """
     if len(shared_board_images_a) != len(shared_board_images_b):
         raise ValueError("Stereo calibration requires corresponding pairs of images.")
+    if (
+        camera_a_intrinsics.image_width != camera_b_intrinsics.image_width
+        or camera_a_intrinsics.image_height != camera_b_intrinsics.image_height
+    ):
+        raise ValueError(
+            "Stereo calibration currently requires both camera streams to use the same "
+            "resolution. Calibrate and record with matching orientation/resolution."
+        )
 
     obj_points = []  # 3d points
     img_points_a = []  # 2d points from camera A
@@ -329,7 +349,10 @@ def calibrate_stereo(
 
             len_a = len(charuco_corners_a) if charuco_corners_a is not None else 0
             len_b = len(charuco_corners_b) if charuco_corners_b is not None else 0
-            print(f"[Stereo Debug] Frame {img_path_a.name}/{img_path_b.name}: Cam A detected {len_a} corners, Cam B detected {len_b} corners.")
+            print(
+                f"[Stereo Debug] Frame {Path(img_path_a).name}/{Path(img_path_b).name}: "
+                f"Cam A detected {len_a} corners, Cam B detected {len_b} corners."
+            )
 
             if (charuco_corners_a is not None and len(charuco_corners_a) >= MIN_CHARUCO_CORNERS and
                     charuco_corners_b is not None and len(charuco_corners_b) >= MIN_CHARUCO_CORNERS):
@@ -359,6 +382,10 @@ def calibrate_stereo(
 
     if not obj_points:
         raise ValueError("Could not find simultaneous detections of the board in both views.")
+    if len(obj_points) < 3:
+        raise ValueError(
+            f"Only {len(obj_points)} usable stereo board poses were found; at least 3 are required."
+        )
 
     # Reconstruct Camera matrices from intrinsics
     mtx_a = np.array(camera_a_intrinsics.as_matrix(), dtype=np.float32)
@@ -366,11 +393,23 @@ def calibrate_stereo(
     mtx_b = np.array(camera_b_intrinsics.as_matrix(), dtype=np.float32)
     dist_b = np.array(camera_b_intrinsics.distortion, dtype=np.float32)
 
+    # Reserve a deterministic subset of poses for geometry validation.  A
+    # calibration should not grade the same correspondences it optimized.
+    if len(obj_points) >= 6:
+        validation_indices = {i for i in range(len(obj_points)) if i % 5 == 0}
+        training_indices = [i for i in range(len(obj_points)) if i not in validation_indices]
+    else:
+        validation_indices = set(range(len(obj_points)))
+        training_indices = list(range(len(obj_points)))
+    solve_obj = [obj_points[i] for i in training_indices]
+    solve_a = [img_points_a[i] for i in training_indices]
+    solve_b = [img_points_b[i] for i in training_indices]
+
     # Perform stereo calibration. Keep intrinsics fixed.
     flags = cv2.CALIB_FIX_INTRINSIC
     try:
         ret, _, _, _, _, R, T, E, F = cv2.stereoCalibrate(
-            obj_points, img_points_a, img_points_b,
+            solve_obj, solve_a, solve_b,
             mtx_a, dist_a, mtx_b, dist_b,
             image_size, flags=flags
         )
@@ -391,26 +430,106 @@ def calibrate_stereo(
     ext_b[:3, :3] = R
     ext_b[:3, 3] = T.flatten()
 
-    # Calculate alignment confidence (lower reprojection error -> higher confidence)
-    # A simple mapping: 0 px error = 1.0 confidence, 2 px or more = 0.0 confidence
-    confidence = max(0.0, 1.0 - (ret / 2.0))
+    # Symmetric point-to-epipolar-line error on all calibration observations.
+    # This measures whether correspondences satisfy the recovered stereo
+    # geometry; optimizer RMS alone can look acceptable for a degenerate rig.
+    epipolar_errors: list[float] = []
+    validation_a = [img_points_a[i] for i in sorted(validation_indices)]
+    validation_b = [img_points_b[i] for i in sorted(validation_indices)]
+    for pts_a, pts_b in zip(validation_a, validation_b):
+        pa = np.asarray(pts_a, dtype=np.float64).reshape(-1, 2)
+        pb = np.asarray(pts_b, dtype=np.float64).reshape(-1, 2)
+        pa_norm = cv2.undistortPoints(pa.reshape(-1, 1, 2), mtx_a, dist_a).reshape(-1, 2)
+        pb_norm = cv2.undistortPoints(pb.reshape(-1, 1, 2), mtx_b, dist_b).reshape(-1, 2)
+        pa_h = np.column_stack([pa_norm, np.ones(len(pa_norm))])
+        pb_h = np.column_stack([pb_norm, np.ones(len(pb_norm))])
+        lines_b = (E @ pa_h.T).T
+        lines_a = (E.T @ pb_h.T).T
+        denom_b = np.linalg.norm(lines_b[:, :2], axis=1)
+        denom_a = np.linalg.norm(lines_a[:, :2], axis=1)
+        error_b = np.abs(np.sum(lines_b * pb_h, axis=1)) / np.maximum(denom_b, 1e-12)
+        error_a = np.abs(np.sum(lines_a * pa_h, axis=1)) / np.maximum(denom_a, 1e-12)
+        focal_scale = float(np.mean([mtx_a[0, 0], mtx_a[1, 1], mtx_b[0, 0], mtx_b[1, 1]]))
+        epipolar_errors.extend((0.5 * (error_a + error_b) * focal_scale).tolist())
 
-    # Build default coordinate system
+    epi_median = float(np.median(epipolar_errors)) if epipolar_errors else float("inf")
+    epi_p95 = float(np.percentile(epipolar_errors, 95)) if epipolar_errors else float("inf")
+    epi_inlier_ratio = (
+        float(np.mean(np.asarray(epipolar_errors) <= 4.0)) if epipolar_errors else 0.0
+    )
+    baseline_m = float(np.linalg.norm(T))
+    warnings: list[str] = []
+    fatal_warnings: list[str] = []
+    if len(obj_points) < 3:
+        fatal_warnings.append("Fewer than 3 usable stereo board poses were found.")
+    if float(ret) > 2.0:
+        fatal_warnings.append(f"Stereo calibration RMS is high ({float(ret):.2f}px; expected <= 2px).")
+    if epi_median > 1.5:
+        fatal_warnings.append(
+            f"Held-out median epipolar residual is high ({epi_median:.2f}px; expected <= 1.5px)."
+        )
+    if epi_inlier_ratio < 0.85:
+        fatal_warnings.append(
+            "Too few held-out ChArUco correspondences satisfy the stereo geometry "
+            f"({epi_inlier_ratio * 100:.1f}% within 4px; expected at least 85%)."
+        )
+    elif epi_p95 > 4.0:
+        warnings.append(
+            f"A small held-out correspondence tail was rejected (p95 {epi_p95:.2f}px; "
+            f"{epi_inlier_ratio * 100:.1f}% remain within 4px)."
+        )
+    if not 0.05 <= baseline_m <= 10.0:
+        fatal_warnings.append(f"Recovered camera baseline is implausible ({baseline_m:.3f}m).")
+
+    warnings = fatal_warnings + warnings
+    is_valid = not fatal_warnings
+    rms_score = max(0.0, 1.0 - float(ret) / 2.0)
+    # A calibration at the acceptance boundary should be low-confidence, not
+    # effectively zero-confidence. Map 0..3 px onto 1..0 while validation still
+    # enforces the stricter 1.5 px median ceiling above.
+    epi_score = max(0.0, 1.0 - epi_median / 3.0)
+    confidence = float(min(rms_score, epi_score) * epi_inlier_ratio) if is_valid else 0.0
+
+    # MVP world alignment assumes Camera A is an upright down-the-line view:
+    # OpenCV camera +Z looks forward/downrange and image -Y is up.  The tee
+    # origin is established from the first accepted 3D ball point in the shot
+    # pipeline. A future floor-marker workflow can replace this approximation.
     cs = CoordinateSystem(
         origin_in_rig_frame_m=[0.0, 0.0, 0.0],
-        target_direction_in_rig_frame=[1.0, 0.0, 0.0],
-        up_direction_in_rig_frame=[0.0, 0.0, 1.0],
-        alignment_method="manual",
+        target_direction_in_rig_frame=[0.0, 0.0, 1.0],
+        up_direction_in_rig_frame=[0.0, -1.0, 0.0],
+        alignment_method="camera_a_down_the_line_assumption",
+        notes=(
+            "MVP alignment: Camera A must be upright and down-the-line. "
+            "Shot processing recenters the first accepted ball point at the origin."
+        ),
     )
 
     return CalibrationResult(
+        calibration_version=2,
         coordinate_system=cs,
         camera_a_intrinsics=camera_a_intrinsics.as_matrix(),
         camera_b_intrinsics=camera_b_intrinsics.as_matrix(),
         camera_a_extrinsics=ext_a.tolist(),
         camera_b_extrinsics=ext_b.tolist(),
+        camera_a_distortion=list(camera_a_intrinsics.distortion),
+        camera_b_distortion=list(camera_b_intrinsics.distortion),
+        camera_a_image_size=(camera_a_intrinsics.image_width, camera_a_intrinsics.image_height),
+        camera_b_image_size=(camera_b_intrinsics.image_width, camera_b_intrinsics.image_height),
+        stereo_rotation=R.tolist(),
+        stereo_translation_m=T.flatten().tolist(),
+        essential_matrix=E.tolist(),
+        fundamental_matrix=F.tolist(),
+        intrinsic_error_a_px=camera_a_intrinsics.reprojection_error_px,
+        intrinsic_error_b_px=camera_b_intrinsics.reprojection_error_px,
+        epipolar_error_median_px=epi_median,
+        epipolar_error_p95_px=epi_p95,
+        epipolar_inlier_ratio=epi_inlier_ratio,
+        baseline_m=baseline_m,
+        validation_frame_count=len(validation_indices),
+        validation_warnings=warnings,
         reprojection_error_px=float(ret),
         confidence=confidence,
         calibration_target=board_type,
-        is_valid=True,
+        is_valid=is_valid,
     )

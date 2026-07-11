@@ -65,3 +65,18 @@ def test_detect_ball_candidates_streak_ball():
     # It must be classified as a streak
     assert best_cand.is_streak is True
     assert best_cand.confidence > 0.7
+
+
+def test_detect_large_optic_yellow_phone_streak():
+    bg_model = np.full((1080, 1920, 3), (45, 120, 45), dtype=np.uint8)
+    frame = bg_model.copy()
+    cv2.ellipse(frame, (1450, 850), (95, 14), -18, 0, 360, (0, 255, 255), -1)
+
+    candidates = detect_ball_candidates(frame, bg_model)
+
+    optic = [candidate for candidate in candidates if candidate.is_optic_color]
+    assert optic
+    assert optic[0].x_px == pytest.approx(1450, abs=3)
+    assert optic[0].y_px == pytest.approx(850, abs=3)
+    assert optic[0].is_streak
+    assert optic[0].bbox_width_px > 150

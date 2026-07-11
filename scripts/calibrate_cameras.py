@@ -195,8 +195,18 @@ def main():
         square_length=args.square_size,
         marker_length=args.marker_size,
     )
+    if not stereo_result.is_valid:
+        reasons = " ".join(stereo_result.validation_warnings)
+        raise SystemExit(f"Stereo calibration failed validation: {reasons}")
     print(f"Stereo Extrinsic Calibration completed. Reprojection error: {stereo_result.reprojection_error_px:.4f} px")
     print(f"Confidence score: {stereo_result.confidence:.4f}")
+    print(
+        "Epipolar validation: "
+        f"median={stereo_result.epipolar_error_median_px:.3f}px, "
+        f"p95={stereo_result.epipolar_error_p95_px:.3f}px, "
+        f"inliers={stereo_result.epipolar_inlier_ratio * 100:.1f}%, "
+        f"baseline={stereo_result.baseline_m:.3f}m"
+    )
 
     # Write output JSON
     output_path = Path(args.output)

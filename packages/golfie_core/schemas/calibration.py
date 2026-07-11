@@ -5,7 +5,7 @@ See spec section 6 (coordinate system) and section 7 (calibration phases).
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -42,11 +42,40 @@ class CoordinateSystem(BaseModel):
 class CalibrationResult(BaseModel):
     """Output of intrinsic + stereo extrinsic calibration (spec section 7)."""
 
+    calibration_version: int = 1
     coordinate_system: Optional[CoordinateSystem] = None
     camera_a_intrinsics: Optional[List[List[float]]] = None
     camera_b_intrinsics: Optional[List[List[float]]] = None
     camera_a_extrinsics: Optional[List[List[float]]] = None  # 4x4 or 3x4, TBD by golfie_cv
     camera_b_extrinsics: Optional[List[List[float]]] = None
+
+    # A 3x3 intrinsic matrix is not a complete lens model.  These fields
+    # deliberately live beside the legacy matrix fields so calibration JSON
+    # written by older Golfie builds remains readable.
+    camera_a_distortion: List[float] = Field(default_factory=list)
+    camera_b_distortion: List[float] = Field(default_factory=list)
+    camera_a_image_size: Optional[Tuple[int, int]] = None  # (width, height)
+    camera_b_image_size: Optional[Tuple[int, int]] = None
+
+    # Stereo convention: camera_a_extrinsics and camera_b_extrinsics are
+    # rig/world-to-camera transforms.  For calibrations produced by Golfie,
+    # camera A is the rig origin and stereo_rotation/stereo_translation map
+    # camera-A coordinates into camera-B coordinates.
+    stereo_rotation: Optional[List[List[float]]] = None
+    stereo_translation_m: Optional[List[float]] = None
+    essential_matrix: Optional[List[List[float]]] = None
+    fundamental_matrix: Optional[List[List[float]]] = None
+
+    # Quality diagnostics are persisted so callers can reject a calibration
+    # for a concrete reason instead of trusting a single optimizer RMS value.
+    intrinsic_error_a_px: Optional[float] = None
+    intrinsic_error_b_px: Optional[float] = None
+    epipolar_error_median_px: Optional[float] = None
+    epipolar_error_p95_px: Optional[float] = None
+    epipolar_inlier_ratio: Optional[float] = None
+    baseline_m: Optional[float] = None
+    validation_frame_count: int = 0
+    validation_warnings: List[str] = Field(default_factory=list)
     reprojection_error_px: Optional[float] = None
     confidence: float = 0.0
     calibration_target: Optional[str] = None  # "checkerboard" | "charuco" | "aruco" | "apriltag"

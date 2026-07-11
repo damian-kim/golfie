@@ -142,3 +142,39 @@ def test_triangulate_track_invalid_calibration():
     calibration_partial = CalibrationResult(is_valid=True)
     with pytest.raises(ValueError, match="Missing camera intrinsics"):
         triangulate_track([], [], calibration_partial)
+
+
+def test_triangulate_track_uses_saved_lens_distortion():
+    import cv2
+
+    k = np.array([[900.0, 0.0, 640.0], [0.0, 900.0, 360.0], [0.0, 0.0, 1.0]])
+    distortion = np.array([0.18, -0.08, 0.002, -0.001, 0.01])
+    ext_a = np.eye(4)
+    ext_b = np.eye(4)
+    ext_b[0, 3] = -0.8
+    calibration = CalibrationResult(
+        camera_a_intrinsics=k.tolist(),
+        camera_b_intrinsics=k.tolist(),
+        camera_a_extrinsics=ext_a.tolist(),
+        camera_b_extrinsics=ext_b.tolist(),
+        camera_a_distortion=distortion.tolist(),
+        camera_b_distortion=distortion.tolist(),
+        is_valid=True,
+    )
+
+    points = np.array([[1.2 + 0.03 * i, 0.6 - 0.01 * i, 4.0] for i in range(8)])
+    projected_a, _ = cv2.projectPoints(points, np.zeros(3), np.zeros(3), k, distortion)
+    projected_b, _ = cv2.projectPoints(points, np.zeros(3), np.array([-0.8, 0.0, 0.0]), k, distortion)
+    track_a = [
+        TrackedPoint2D(frame_index=i, time_seconds=i / 240, x_px=p[0], y_px=p[1], confidence=1.0)
+        for i, p in enumerate(projected_a.reshape(-1, 2))
+    ]
+    track_b = [
+        TrackedPoint2D(frame_index=i, time_seconds=i / 240, x_px=p[0], y_px=p[1], confidence=1.0)
+        for i, p in enumerate(projected_b.reshape(-1, 2))
+    ]
+
+    recovered = triangulate_track(track_a, track_b, calibration)
+    assert len(recovered) == len(points)
+    for actual, expected in zip(recovered, points):
+        assert [actual.x_m, actual.y_m, actual.z_m] == pytest.approx(expected, abs=1e-5)

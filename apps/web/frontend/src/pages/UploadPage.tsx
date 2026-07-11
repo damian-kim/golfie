@@ -78,8 +78,8 @@ export function UploadPage() {
       <div>
         <h1 className="page__title">Upload a shot</h1>
         <p className="page__subtitle">
-          Two synced iPhone recordings of the same swing. 1080p at 240fps is recommended for
-          reliable ball tracking once detection is implemented.
+          Two recordings of the same swing. For rendered slow-motion files, select the original
+          camera capture rate—not the 30/60 fps playback rate reported by the video container.
         </p>
       </div>
 
@@ -236,7 +236,7 @@ function CameraUploadCard({
           </select>
         </label>
         <div className="field">
-          <span className="field__label">Frame Rate / Speed</span>
+          <span className="field__label">Original Capture Rate</span>
           <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
             <select
               value={["", "240", "120", "60", "30"].includes(fps) ? fps : "custom"}
@@ -250,7 +250,7 @@ function CameraUploadCard({
               }}
               style={{ flex: 1 }}
             >
-              <option value="">Auto-detect (recommended)</option>
+              <option value="">Analyze file timing automatically (recommended)</option>
               <option value="240">240 fps (Slow-Motion)</option>
               <option value="120">120 fps (Slow-Motion)</option>
               <option value="60">60 fps</option>
@@ -274,7 +274,8 @@ function CameraUploadCard({
         </div>
         {file && (
           <span className="field__hint">
-            {file.name} · {(file.size / (1024 * 1024)).toFixed(1)} MB
+            {file.name} · {(file.size / (1024 * 1024)).toFixed(1)} MB. Capture-rate selection is
+            only a fallback when phone/export metadata cannot establish the slow-motion clock.
           </span>
         )}
       </div>

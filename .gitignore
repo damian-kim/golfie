@@ -16,6 +16,7 @@ data/shots/*
 !data/shots/.gitkeep
 data/calibration/*
 !data/calibration/.gitkeep
+data/runtime/
 
 # Editors / OS
 .DS_Store

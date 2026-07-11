@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { TrajectoryPayload } from "../lib/types";
 import { MetricCard } from "./MetricCard";
 import { formatMetric } from "../lib/units";
@@ -14,12 +14,38 @@ interface ShotSimulatorViewProps {
 
 export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorViewProps) {
   const { metrics } = payload;
-  const [showPrecursor, setShowPrecursor] = useState(payload.session_id !== "sample");
+  const [showPrecursor, setShowPrecursor] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [outlinesReady, setOutlinesReady] = useState(false);
+  const [outlineStatus, setOutlineStatus] = useState("Checking outline availability...");
   const [playToken, setPlayToken] = useState(0);
 
   const videoAUrl = `${API_BASE_URL}/sessions/${payload.session_id}/video/camera_a/stripped`;
   const videoBUrl = `${API_BASE_URL}/sessions/${payload.session_id}/video/camera_b/stripped`;
+
+  useEffect(() => {
+    if (payload.session_id === "sample") return;
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/sessions/${payload.session_id}/artifacts`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`artifact status request failed (${response.status})`);
+        return response.json();
+      })
+      .then((status) => {
+        if (cancelled) return;
+        const ready = Boolean(status.outline_ready);
+        setOutlinesReady(ready);
+        setOutlineStatus(ready
+          ? "Swing outline videos are ready."
+          : status.outline_unavailable_reason || "Swing outline videos are unavailable.");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setOutlinesReady(false);
+        setOutlineStatus(`Could not check outline availability: ${error.message}`);
+      });
+    return () => { cancelled = true; };
+  }, [payload.session_id]);
 
   const handleVideoEnded = () => {
     setShowPrecursor(false);
@@ -34,11 +60,11 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
   };
 
   const handleVideoError = () => {
-    setVideoError("Unable to load outline videos. Please ensure the shot has finished processing successfully.");
+    setVideoError("Outline artifacts were reported ready, but a video could not be decoded. Check the session artifact status and processing log.");
   };
 
   const handleReplayClick = () => {
-    if (payload.session_id !== "sample") {
+    if (payload.session_id !== "sample" && outlinesReady) {
       setVideoError(null);
       setShowPrecursor(true);
     } else {
@@ -131,9 +157,16 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
                 color: "#ffffff"
               }}
               onClick={handleReplayClick}
+              disabled={!outlinesReady}
+              title={outlineStatus}
             >
-              <span>🎥 Replay Swing Outlines</span>
+              <span>{outlinesReady ? "Replay Swing Outlines" : "Swing Outlines Unavailable"}</span>
             </button>
+            {!outlinesReady && (
+              <p className="mono" style={{ fontSize: "10px", lineHeight: 1.4, opacity: 0.7, margin: "8px 0 0" }}>
+                {outlineStatus}
+              </p>
+            )}
           </div>
         )}
       </div>

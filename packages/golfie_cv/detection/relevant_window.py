@@ -5,6 +5,97 @@ import tempfile
 from pathlib import Path
 from golfie_cv.sync import _find_ffmpeg_fallback, _extract_audio
 
+
+def detect_impact_frame_fast(video_path: Path) -> tuple[int, float]:
+    """Locate club/ball launch with one sequential low-resolution decode.
+
+    Shot clips are already short slow-motion renders. Extracting audio and
+    repeatedly seeking a VFR H.264 stream took 20-40 seconds and can return
+    inconsistent frame ordinals. Sequential visual motion is both faster and
+    aligned with the ordinals used by candidate detection.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        cap.release()
+        raise RuntimeError(f"Could not open video for impact detection: {video_path}")
+
+    fps = float(cap.get(cv2.CAP_PROP_FPS))
+    scores: list[float] = []
+    ball_scores: list[float] = []
+    timestamps: list[float] = []
+    previous = None
+    previous_gray = None
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+            timestamp = float(cap.get(cv2.CAP_PROP_POS_MSEC)) / 1000.0
+            small = cv2.resize(frame, (320, 180), interpolation=cv2.INTER_AREA)
+            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+            # Exclude sky/top edge and extreme side clutter while retaining
+            # both the DTL and face-on hitting areas.
+            roi = cv2.GaussianBlur(gray[25:178, 12:308], (5, 5), 0)
+            if previous is None:
+                scores.append(0.0)
+                ball_scores.append(0.0)
+            else:
+                delta = cv2.absdiff(roi, previous)
+                # Top-tail motion emphasizes the club/ball burst without a
+                # large golfer silhouette dominating the mean.
+                active = delta[delta >= 18]
+                score = float(np.mean(active) * np.sqrt(len(active))) if len(active) else 0.0
+                scores.append(score)
+                hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
+                yellow = cv2.inRange(hsv, (8, 70, 90), (45, 255, 255))
+                count, component_labels, stats, _ = cv2.connectedComponentsWithStats(yellow, 8)
+                best_ball_score = 0.0
+                full_delta = cv2.absdiff(gray, previous_gray)
+                for label in range(1, count):
+                    left, top, width, height, area = stats[label]
+                    if area < 2 or area > 800 or width > 100 or height > 70:
+                        continue
+                    if top + 0.5 * height < 0.52 * gray.shape[0]:
+                        continue
+                    component = np.where(
+                        component_labels[top:top + height, left:left + width] == label, 255, 0
+                    ).astype(np.uint8)
+                    motion = cv2.mean(
+                        full_delta[top:top + height, left:left + width], mask=component
+                    )[0]
+                    best_ball_score = max(best_ball_score, float(motion * np.sqrt(area)))
+                ball_scores.append(best_ball_score)
+            timestamps.append(timestamp)
+            previous = roi
+            previous_gray = gray
+    finally:
+        cap.release()
+
+    if len(scores) < 3:
+        raise RuntimeError(f"Too few decoded frames for impact detection: {len(scores)}")
+    smoothed = np.convolve(np.asarray(scores), np.ones(3) / 3.0, mode="same")
+    # Downswing motion peaks just before contact. In phone Slo-mo the coloured
+    # ball's first high-motion component provides a much sharper launch cue.
+    peak = int(np.argmax(smoothed))
+    ball_start = min(len(ball_scores) - 1, peak + 4)
+    ball_end = min(len(ball_scores), peak + 26)
+    local_ball_scores = ball_scores[ball_start:ball_end]
+    maximum_ball_score = max(local_ball_scores, default=0.0)
+    if ball_end > ball_start and maximum_ball_score > 40.0:
+        ball_threshold = max(40.0, 0.35 * maximum_ball_score)
+        first_flight = ball_start + int(np.argmax(local_ball_scores))
+        for relative, score in enumerate(local_ball_scores):
+            if score >= ball_threshold and max(local_ball_scores[relative:relative + 2]) >= ball_threshold:
+                first_flight = ball_start + relative
+                break
+        impact = max(1, first_flight - 1)
+    else:
+        impact = peak
+    timestamp = timestamps[impact]
+    if timestamp <= 0.0 and fps > 0:
+        timestamp = impact / fps
+    return impact, float(timestamp)
+
 def detect_relevant_window(video_path: Path, fps: float, frame_count: int) -> tuple[int, int, float]:
     """Detect the relevant parts of a video fast (start_frame, end_frame, impact_time).
     

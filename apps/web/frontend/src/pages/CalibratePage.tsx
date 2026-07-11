@@ -175,7 +175,6 @@ export function CalibratePage() {
   // Poll calibration progress logs while busy
   useEffect(() => {
     if (!busy) {
-      setLogs([]);
       return;
     }
 
@@ -291,6 +290,7 @@ export function CalibratePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!fileA || !fileB) return;
+    setLogs([]);
     setBusy(true);
     setError(null);
     setResult(null);
@@ -378,7 +378,7 @@ export function CalibratePage() {
                 Place your tripods in their final positions (Camera A Down-the-line, Camera B Face-on). <strong>Do not move them</strong> until you finish hitting your golf shots!
               </li>
               <li>
-                Start recording on both cameras. Wave the board slowly in the common overlap view (where the ball is hit), holding it at various angles and rotations so both cameras capture it.
+                Start recording on both cameras and make one sharp clap for synchronization. Then wave the board slowly in the common overlap view (where the ball is hit), holding it at varied angles, depths, and image positions so both cameras capture it.
               </li>
               <li>
                 Upload the calibration recordings below to automatically sync, extract frames, and compute the camera rig geometry.
@@ -497,7 +497,7 @@ export function CalibratePage() {
                       />
                       <select
                         value={unit}
-                        onChange={(e) => { setUnit(e.target.value as any); markAsCustom(); }}
+                        onChange={(e) => { setUnit(e.target.value as "mm" | "cm" | "in" | "m"); markAsCustom(); }}
                         style={{ width: "80px", minWidth: "80px", flexShrink: 0, paddingRight: "24px" }}
                       >
                         <option value="mm">mm</option>
@@ -584,7 +584,7 @@ export function CalibratePage() {
                             />
                             <select
                               value={unit}
-                              onChange={(e) => { setUnit(e.target.value as any); markAsCustom(); }}
+                              onChange={(e) => { setUnit(e.target.value as "mm" | "cm" | "in" | "m"); markAsCustom(); }}
                               style={{ width: "80px", minWidth: "80px", flexShrink: 0, paddingRight: "24px" }}
                             >
                               <option value="mm">mm</option>

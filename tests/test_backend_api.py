@@ -34,6 +34,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(session_store_module, "session_store", isolated_store)
     monkeypatch.setattr(storage_pkg, "session_store", isolated_store)
     monkeypatch.setattr(sessions_module, "session_store", isolated_store)
+    monkeypatch.setattr(sessions_module, "CALIBRATION_DIR", tmp_path / "calibration")
 
     return TestClient(main_module.app)
 
@@ -294,4 +295,18 @@ def test_camera_upload_with_fps_override(client, sample_clip):
     assert body["camera_a"]["fps"] == 240.0
 
 
+def test_mixed_rate_calibration_pairing_uses_snapped_a_timestamp():
+    from golfie_api.routers.calibration import _paired_frame_indices
+
+    offset = 6.326757369614512
+    idx_a, idx_b = _paired_frame_indices(
+        progress_time=1.0,
+        start_time_a=offset,
+        start_time_b=0.0,
+        fps_a=30.0,
+        fps_b=120.0,
+    )
+    aligned_a_time = idx_a / 30.0
+    aligned_b_time = idx_b / 120.0 + offset
+    assert abs(aligned_a_time - aligned_b_time) <= 0.5 / 120.0
 

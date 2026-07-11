@@ -39,7 +39,10 @@ class SessionStore:
 
     def save(self, session: Session) -> None:
         self.session_dir(session.session_id).mkdir(parents=True, exist_ok=True)
-        self._session_file(session.session_id).write_text(session.model_dump_json(indent=2))
+        destination = self._session_file(session.session_id)
+        temporary = destination.with_suffix(".json.tmp")
+        temporary.write_text(session.model_dump_json(indent=2), encoding="utf-8")
+        temporary.replace(destination)
 
     def load(self, session_id: str) -> Session:
         path = self._session_file(session_id)

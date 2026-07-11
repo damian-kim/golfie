@@ -1,12 +1,14 @@
 """Per-camera ball tracking across frames (turns candidates into a track).
 
-STATUS: stub. Implemented in Milestones 3-4 (spec section 20 / spec section 10).
+The monocular tracker remains available as a diagnostic fallback; production
+processing first uses the stereo-aware selector in ``tracking.stereo``.
 """
 
 from __future__ import annotations
 
 from golfie_core.schemas import TrackedPoint2D
 from golfie_cv.detection import BallCandidate
+from golfie_cv.tracking.stereo import track_ball_stereo, track_optic_ball_stereo
 
 
 def track_ball_2d(
@@ -262,7 +264,7 @@ def track_ball_2d(
     all_tracks = finished_tracks + active_tracks
 
     # Filter tracks: require minimum points (e.g., 3) to prevent noise
-    valid_tracks = [t for t in all_tracks if len(t.candidates) >= 3]
+    valid_tracks = [t for t in all_tracks if len(t.candidates) >= 4]
 
     if not valid_tracks:
         return []

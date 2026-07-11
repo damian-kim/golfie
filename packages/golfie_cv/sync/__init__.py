@@ -43,6 +43,7 @@ def _find_ffmpeg_fallback() -> str | None:
 
     # 2. Check common Windows installation paths
     common_paths = [
+        str(Path(__file__).resolve().parents[3] / "bin" / "ffmpeg.exe"),
         r"C:\ffmpeg\bin\ffmpeg.exe",
         r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
         r"E:\ffmpeg\bin\ffmpeg.exe",
@@ -85,7 +86,13 @@ def _extract_audio(video_path: Path, output_wav_path: Path) -> bool:
 
 
 def align_audio_data(data_a: np.ndarray, rate_a: int, data_b: np.ndarray, rate_b: int) -> tuple[float, float, int, int]:
-    """Helper to perform cross-correlation based synchronization on loaded audio signals."""
+    """Locate the same impulsive event from two independently processed mics.
+
+    Phone AGC, clipping, echo cancellation, and codec phase often make the raw
+    clap waveforms look quite different even though their energy transients are
+    unambiguous.  Synchronization therefore uses a short RMS-energy envelope
+    and scores peak prominence, rather than requiring raw-waveform correlation.
+    """
     # Ensure data is single-channel and floating point
     if len(data_a.shape) > 1:
         data_a = data_a.mean(axis=1)
@@ -105,57 +112,46 @@ def align_audio_data(data_a: np.ndarray, rate_a: int, data_b: np.ndarray, rate_b
         else:
             data_b = data_b.astype(np.float32)
 
-    # Absolute envelope for peak detection
-    env_a = np.abs(data_a)
-    env_b = np.abs(data_b)
-
-    # Locate the primary transient spike (the impact)
-    peak_a = int(np.argmax(env_a))
-    peak_b = int(np.argmax(env_b))
-
-    # Extract correlation windows (e.g. 0.02s before and 0.02s after the peak)
-    win_sz_a = int(rate_a * 0.02)
-    win_sz_b = int(rate_b * 0.02)
-
-    start_a = max(0, peak_a - win_sz_a)
-    end_a = min(len(data_a), peak_a + win_sz_a)
-    win_a = data_a[start_a:end_a]
-
-    start_b = max(0, peak_b - win_sz_b)
-    end_b = min(len(data_b), peak_b + win_sz_b)
-    win_b = data_b[start_b:end_b]
-
     # Ensure identical sample rates (standard for ffmpeg output config)
     if rate_a != rate_b:
         raise ValueError(f"Sample rates must match. Got rate_a={rate_a}Hz and rate_b={rate_b}Hz.")
 
-    # Remove means for normalized cross-correlation
-    win_a_norm = win_a - np.mean(win_a)
-    win_b_norm = win_b - np.mean(win_b)
+    def locate_transient(data: np.ndarray, rate: int) -> tuple[int, float]:
+        if data.size == 0:
+            raise ValueError("Audio stream is empty.")
 
-    # Compute normalized cross-correlation
-    norm_a = np.linalg.norm(win_a_norm)
-    norm_b = np.linalg.norm(win_b_norm)
-    
-    if norm_a > 1e-9 and norm_b > 1e-9:
-        corr = np.correlate(win_a_norm, win_b_norm, mode='full') / (norm_a * norm_b)
-    else:
-        corr = np.correlate(win_a_norm, win_b_norm, mode='full')
+        # A 2 ms RMS window suppresses isolated codec spikes while preserving
+        # the sharp onset needed for sub-frame video alignment.
+        window = max(3, int(round(rate * 0.002)))
+        kernel = np.ones(window, dtype=np.float64) / window
+        energy = np.convolve(np.square(data.astype(np.float64)), kernel, mode="same")
+        rms = np.sqrt(np.maximum(energy, 0.0))
+        coarse_peak = int(np.argmax(rms))
 
-    lag = int(np.argmax(corr) - (len(win_b_norm) - 1))
+        baseline = float(np.median(rms))
+        mad = float(np.median(np.abs(rms - baseline)))
+        noise_scale = max(1.4826 * mad, float(np.percentile(rms, 75)) * 0.05, 1e-7)
+        prominence = max(0.0, (float(rms[coarse_peak]) - baseline) / noise_scale)
 
-    # Calculate offset in seconds (t_a - t_b)
-    offset_sec = (start_a - start_b + lag) / rate_a
+        # Energy centroid around the onset is more stable across clipping and
+        # echo than whichever single sample happened to hit the largest value.
+        radius = max(window, int(round(rate * 0.006)))
+        lo = max(0, coarse_peak - radius)
+        hi = min(len(energy), coarse_peak + radius + 1)
+        local = np.maximum(energy[lo:hi] - baseline * baseline, 0.0)
+        if float(np.sum(local)) > 1e-12:
+            peak = int(round(float(np.sum(np.arange(lo, hi) * local) / np.sum(local))))
+        else:
+            peak = coarse_peak
 
-    # Determine confidence based on normalized cross-correlation peak value
-    if len(corr) > 0:
-        peak_val = np.max(corr)
-        # Scale peak correlation to a confidence score
-        # For a clean correlation, peak value is close to 1.0. 
-        # We map peak values [0.3, 0.8] to [0.0, 1.0] confidence.
-        confidence = min(1.0, max(0.0, (peak_val - 0.3) / 0.5))
-    else:
-        confidence = 0.0
+        # Prominence of roughly 8 robust noise scales is already a clear clap.
+        confidence = float(np.clip((prominence - 3.0) / 8.0, 0.0, 1.0))
+        return peak, confidence
+
+    peak_a, confidence_a = locate_transient(data_a, rate_a)
+    peak_b, confidence_b = locate_transient(data_b, rate_b)
+    offset_sec = (peak_a / rate_a) - (peak_b / rate_b)
+    confidence = min(confidence_a, confidence_b)
 
     return offset_sec, confidence, peak_a, peak_b
 

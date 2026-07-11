@@ -11,11 +11,25 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from golfie_core.schemas import CalibrationResult, CameraIntrinsics
 from golfie_cv.calibration import calibrate_intrinsics, calibrate_stereo
-from golfie_api.config import CALIBRATION_DIR
+from golfie_api.config import CALIBRATION_DIR, CALIBRATION_LOG_PATH
 
 router = APIRouter(prefix="/calibration", tags=["calibration"])
 
 ACTIVE_CALIBRATION_PATH = CALIBRATION_DIR / "active_calibration.json"
+
+
+def _paired_frame_indices(
+    progress_time: float,
+    start_time_a: float,
+    start_time_b: float,
+    fps_a: float,
+    fps_b: float,
+) -> tuple[int, int]:
+    """Pair B to the timestamp of A's actual decoded frame."""
+    idx_a = int(round((start_time_a + progress_time) * fps_a))
+    actual_progress_time = (idx_a / fps_a) - start_time_a
+    idx_b = int(round((start_time_b + actual_progress_time) * fps_b))
+    return idx_a, idx_b
 
 
 def extract_synced_frames(
@@ -49,12 +63,27 @@ def extract_synced_frames(
         s_b = max(0.0, -candidate_offset)
         overlap = min(duration_a - s_a, duration_b - s_b)
         
-        if overlap > 1.0:
+        if sync.method.value == "manual":
+            raise ValueError(sync.notes or "Audio could not be extracted from one or both videos.")
+        if sync.confidence >= 0.3 and overlap > 1.0:
             offset_sec = candidate_offset
+            log_calibration_progress(
+                f"Audio sync accepted: confidence={sync.confidence:.2f}, "
+                f"offset={offset_sec:.6f}s, Camera A={fps_a:.3f}fps, Camera B={fps_b:.3f}fps."
+            )
         else:
-            offset_sec = 0.0
-    except Exception:
-        offset_sec = 0.0
+            raise ValueError(
+                "Calibration audio was extracted, but synchronization was rejected: "
+                f"confidence={sync.confidence:.2f}, candidate_offset={candidate_offset:.3f}s, "
+                f"overlap={overlap:.2f}s. The clap must be the strongest isolated transient "
+                "in both recordings."
+            )
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(
+            f"Calibration audio synchronization failed: {exc}"
+        ) from exc
 
     # Overlap regions in seconds
     start_time_a = max(0.0, offset_sec)
@@ -80,8 +109,9 @@ def extract_synced_frames(
     saved = 0
     for i in range(max_frames):
         t = i * time_step
-        idx_a = int(round((start_time_a + t) * fps_a))
-        idx_b = int(round((start_time_b + t) * fps_b))
+        # Camera A and B can have very different rates (e.g. 30 vs 120 fps).
+        # Pair B to A's snapped frame timestamp, not the unsnapped ideal time.
+        idx_a, idx_b = _paired_frame_indices(t, start_time_a, start_time_b, fps_a, fps_b)
 
         if idx_a >= total_a or idx_b >= total_b:
             break
@@ -123,8 +153,6 @@ def get_active_calibration() -> CalibrationResult:
 
 
 from datetime import datetime
-
-CALIBRATION_LOG_PATH = Path(r"E:\Golfie\golfie\calibration_progress.log")
 
 def log_calibration_progress(msg: str):
     try:
@@ -206,6 +234,10 @@ async def upload_and_calibrate(
                 square_length=square_size,
                 marker_length=marker_size,
             )
+            log_calibration_progress(
+                f"Camera A intrinsics: RMS={intrinsics_a.reprojection_error_px:.3f}px, "
+                f"size={intrinsics_a.image_width}x{intrinsics_a.image_height}."
+            )
         except Exception as exc:
             log_calibration_progress(f"Camera A intrinsics calibration failed: {exc}")
             raise HTTPException(
@@ -222,6 +254,10 @@ async def upload_and_calibrate(
                 grid_size=(grid_cols, grid_rows),
                 square_length=square_size,
                 marker_length=marker_size,
+            )
+            log_calibration_progress(
+                f"Camera B intrinsics: RMS={intrinsics_b.reprojection_error_px:.3f}px, "
+                f"size={intrinsics_b.image_width}x{intrinsics_b.image_height}."
             )
         except Exception as exc:
             log_calibration_progress(f"Camera B intrinsics calibration failed: {exc}")
@@ -243,6 +279,28 @@ async def upload_and_calibrate(
                 square_length=square_size,
                 marker_length=marker_size,
             )
+            if all(
+                value is not None
+                for value in (
+                    stereo_result.epipolar_error_median_px,
+                    stereo_result.epipolar_error_p95_px,
+                    stereo_result.epipolar_inlier_ratio,
+                    stereo_result.baseline_m,
+                )
+            ):
+                log_calibration_progress(
+                    "Stereo diagnostics: "
+                    f"RMS={stereo_result.reprojection_error_px:.3f}px, "
+                    f"epipolar median={stereo_result.epipolar_error_median_px:.3f}px, "
+                    f"p95={stereo_result.epipolar_error_p95_px:.3f}px, "
+                    f"inliers={stereo_result.epipolar_inlier_ratio * 100:.1f}%, "
+                    f"baseline={stereo_result.baseline_m:.3f}m."
+                )
+            if not stereo_result.is_valid:
+                reasons = stereo_result.validation_warnings or [
+                    "Stereo geometry did not meet Golfie's validation thresholds."
+                ]
+                raise ValueError(" ".join(reasons))
         except Exception as exc:
             log_calibration_progress(f"Stereo extrinsic calibration failed: {exc}")
             raise HTTPException(
@@ -251,7 +309,7 @@ async def upload_and_calibrate(
             )
 
         # Persist results
-        log_calibration_progress("Saving active calibration result to disk...")
+        log_calibration_progress("Saving validated active calibration result to disk...")
         ACTIVE_CALIBRATION_PATH.parent.mkdir(parents=True, exist_ok=True)
         ACTIVE_CALIBRATION_PATH.write_text(stereo_result.model_dump_json(indent=2))
         log_calibration_progress("Rig calibration completed successfully!")
