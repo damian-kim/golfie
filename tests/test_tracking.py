@@ -241,3 +241,40 @@ def test_optic_tracker_recovers_real_iron_flight_over_long_distractors():
     assert len(track_b) == 6
     assert track_a[0].x_px == pytest.approx(points_a[0][0], abs=1)
     assert track_b[-1].x_px == pytest.approx(points_b[-1][0], abs=1)
+
+
+def test_optic_tracker_accepts_four_frame_driver_streak():
+    calibration = CalibrationResult(
+        calibration_version=2,
+        coordinate_system=CoordinateSystem(
+            target_direction_in_rig_frame=[0.0, 0.0, 1.0],
+            up_direction_in_rig_frame=[0.0, -1.0, 0.0],
+        ),
+        camera_a_intrinsics=[[1491.4292, 0, 617.7333], [0, 1407.7747, 594.3919], [0, 0, 1]],
+        camera_b_intrinsics=[[1694.9617, 0, 1035.0573], [0, 1720.0120, 459.3523], [0, 0, 1]],
+        camera_a_extrinsics=np.eye(4).tolist(),
+        camera_b_extrinsics=[
+            [0.3674185, -0.1847797, 0.9115153, -1.3128251],
+            [0.0586382, 0.9827177, 0.1755775, 0.0972559],
+            [-0.9282054, -0.0110608, 0.3719038, 1.1987005],
+            [0, 0, 0, 1],
+        ],
+        camera_a_distortion=[-0.0109689, -0.3496205, -0.0169869, -0.0544403, 0.4867264],
+        camera_b_distortion=[-0.0226871, 3.0155413, -0.0134417, 0.0661154, -14.8383992],
+        epipolar_error_p95_px=2.1306,
+        is_valid=True,
+    )
+    points_a = [(876.6, 743.2), (906.9, 672.3), (932.2, 614.6), (949.9, 570.9)]
+    points_b = [(997.3, 1058.2), (1205.0, 1034.8), (1472.3, 1007.1), (1745.0, 974.9)]
+    candidates_a = [[] for _ in range(12)]
+    candidates_b = [[] for _ in range(12)]
+    for index, (point_a, point_b) in enumerate(zip(points_a, points_b), start=4):
+        candidates_a[index].append(BallCandidate(*point_a, 20, 0.92, True, 1.0, True, 40, 44))
+        candidates_b[index].append(BallCandidate(*point_b, 60, 0.92, True, 1.0, True, 210, 56))
+
+    track_a, track_b = track_optic_ball_stereo(candidates_a, candidates_b, 240.0, calibration)
+
+    assert len(track_a) == 4
+    assert len(track_b) == 4
+    assert track_a[0].x_px == pytest.approx(points_a[0][0], abs=1)
+    assert track_b[-1].x_px == pytest.approx(points_b[-1][0], abs=1)

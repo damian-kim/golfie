@@ -126,8 +126,17 @@ def detect_ball_candidates(frame: np.ndarray, background_model: np.ndarray | Non
     # motion mask can fragment or merge a long exposure streak, whereas the
     # high-saturation ball remains one clean component in both supplied phone
     # views. Keep these ahead of generic white/highlight candidates.
+    # Colour alone is not enough outdoors: sunlit grass and range markers can
+    # contain thousands of optic-yellow pixels and previously entered the
+    # tracker as high-confidence stationary "balls". Require the optic colour
+    # to overlap foreground motion, with a tiny dilation to keep blurred streak
+    # edges connected.
+    optic_foreground_mask = cv2.bitwise_and(
+        optic_ball_mask,
+        cv2.dilate(motion_mask, np.ones((3, 3), dtype=np.uint8), iterations=1),
+    )
     optic_count, _, optic_stats, optic_centroids = cv2.connectedComponentsWithStats(
-        optic_ball_mask, 8
+        optic_foreground_mask, 8
     )
     for optic_label in range(1, optic_count):
         left, top, width, height, optic_area = optic_stats[optic_label]
@@ -139,6 +148,8 @@ def detect_ball_candidates(frame: np.ndarray, background_model: np.ndarray | Non
         local_motion = 0.0
         if diff is not None:
             local_motion = float(np.mean(diff[top:top + height, left:left + width])) / 255.0
+            if local_motion < 0.06:
+                continue
         confidence = float(np.clip(0.88 + 0.10 * local_motion, 0.88, 0.99))
         candidates.append(
             BallCandidate(

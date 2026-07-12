@@ -68,7 +68,7 @@ def test_validation_pipeline_perfect_recovery(test_calibration):
     
     # Expected launch velocity vector
     vx = 50.0 * np.cos(np.radians(10.0)) * np.cos(np.radians(3.0))
-    vy = 50.0 * np.cos(np.radians(10.0)) * np.sin(np.radians(3.0))
+    vy = -50.0 * np.cos(np.radians(10.0)) * np.sin(np.radians(3.0))
     vz = 50.0 * np.sin(np.radians(10.0))
 
     assert fit_res.initial_velocity_mps[0] == pytest.approx(vx, abs=1e-2)
@@ -108,7 +108,7 @@ def test_validation_pipeline_noise_sensitivity(test_calibration):
 
     # 6. Assert that the fit recovered initial conditions within reasonable bounds
     vx = 60.0 * np.cos(np.radians(14.0)) * np.cos(np.radians(-2.0))
-    vy = 60.0 * np.cos(np.radians(14.0)) * np.sin(np.radians(-2.0))
+    vy = -60.0 * np.cos(np.radians(14.0)) * np.sin(np.radians(-2.0))
     vz = 60.0 * np.sin(np.radians(14.0))
 
     # Noise introduces minor offsets, but constrained optimization must still converge

@@ -15,7 +15,7 @@ def test_trajectory_payload_maps_golfie_axes_to_scene_axes():
 
     assert scene_point["x"] == 10.0  # downrange unchanged
     assert scene_point["y"] == 3.0  # world Z (up) -> scene Y (up)
-    assert scene_point["z"] == -2.0  # world Y (lateral) -> scene Z (lateral)
+    assert scene_point["z"] == 2.0  # internal world +Y-left -> UI scene right-positive
     assert scene_point["t"] == 1.0
     assert scene_point["confidence"] == 0.8
 

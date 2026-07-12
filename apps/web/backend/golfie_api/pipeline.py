@@ -538,7 +538,7 @@ def run_real_processing(session: Session) -> ShotResult:
             track_a,
             aligned_track_b,
             session.calibration,
-            epipolar_limit_px=18.0 if tracking_method == "optic-color physics-scored" else None,
+            epipolar_limit_px=40.0 if tracking_method == "optic-color physics-scored" else None,
         )
         log_progress(f"Triangulated {len(measured_3d)} points in 3D.")
     except Exception as e:
@@ -745,7 +745,12 @@ def run_real_processing(session: Session) -> ShotResult:
     # 8. Reconstruct Shot Metrics
     speed = float(np.linalg.norm(fit_res.initial_velocity_mps))
     launch_angle = float(np.degrees(np.arcsin(fit_res.initial_velocity_mps[2] / speed)))
-    horizontal_launch = float(np.degrees(np.arctan2(fit_res.initial_velocity_mps[1], fit_res.initial_velocity_mps[0])))
+    # Internal +Y is left so that (+X forward, +Y left, +Z up) remains
+    # right-handed.  Launch-monitor/UI convention is positive to the golfer's
+    # right, hence the sign inversion at the presentation boundary.
+    horizontal_launch = float(
+        -np.degrees(np.arctan2(fit_res.initial_velocity_mps[1], fit_res.initial_velocity_mps[0]))
+    )
 
     launch_notes = "Estimated from the first stereo-reconstructed ball observations."
     direction_notes = (
@@ -794,7 +799,7 @@ def run_real_processing(session: Session) -> ShotResult:
             notes=flight_notes,
         ),
         side_deviation_m=MetricValue(
-            value=full_flight.side_deviation_m,
+            value=-full_flight.side_deviation_m,
             source=MetricSource.ESTIMATED,
             confidence=flight_confidence,
             notes=f"{flight_notes} {direction_notes}",

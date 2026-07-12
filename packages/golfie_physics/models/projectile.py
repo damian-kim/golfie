@@ -46,7 +46,7 @@ class FlightResult:
 
     @property
     def side_deviation_m(self) -> float:
-        """Lateral (+/-Y) offset of the landing point from the target line."""
+        """Internal lateral offset; +Y is physical left in the right-handed frame."""
         return float(self.landing_sample.position_m[1])
 
     def to_tracked_points(
@@ -158,13 +158,14 @@ def simulate_from_launch_conditions(
     launch direction) instead of a raw velocity vector.
 
     Angle convention matches golfie_core.coordinates: 0 deg horizontal
-    launch = straight down the +X target line, positive = right of
-    target (toward +Y) for a right-handed frame with +Z up.
+    launch = straight down the +X target line, positive = right of target.
+    Internal +Y points left to keep (+X forward, +Y left, +Z up)
+    right-handed, so a right-positive launch uses negative internal Y.
     """
     theta = np.radians(launch_angle_deg)
     phi = np.radians(horizontal_launch_deg)
     vx = ball_speed_mps * np.cos(theta) * np.cos(phi)
-    vy = ball_speed_mps * np.cos(theta) * np.sin(phi)
+    vy = -ball_speed_mps * np.cos(theta) * np.sin(phi)
     vz = ball_speed_mps * np.sin(theta)
     return simulate_flight(
         initial_position_m=np.array([0.0, 0.0, 0.0]),

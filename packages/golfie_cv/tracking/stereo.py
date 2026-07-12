@@ -226,7 +226,16 @@ def track_optic_ball_stereo(
                         _candidate_epipolar_error(a_item[1], b_item[1], calibration, essential)
                         for a_item, b_item in paired
                     ])
-                    geometry = errors <= 18.0
+                    # A driver can turn the face-on ball into a 200px exposure
+                    # streak. Its centroid is not the instantaneous ball centre,
+                    # but the calibrated epipolar line still crosses the streak.
+                    # Admit that bounded along-streak uncertainty; compact balls
+                    # retain the tighter iron-shot gate.
+                    pair_limits = np.asarray([
+                        40.0 if (a_item[1].is_streak or b_item[1].is_streak) else 18.0
+                        for a_item, b_item in paired
+                    ])
+                    geometry = errors <= pair_limits
                     if int(np.sum(geometry)) < 4:
                         continue
                     selected = [pair for pair, keep in zip(paired, geometry) if keep]
@@ -248,7 +257,7 @@ def track_optic_ball_stereo(
                     ]
                     try:
                         points = triangulate_track(
-                            track_a, track_b, calibration, epipolar_limit_px=18.0
+                            track_a, track_b, calibration, epipolar_limit_px=40.0
                         )
                     except ValueError:
                         continue

@@ -211,8 +211,10 @@ def triangulate_track(
     reproj_a = np.linalg.norm(projected_a - raw_a[geometry_mask], axis=1)
     reproj_b = np.linalg.norm(projected_b - raw_b[geometry_mask], axis=1)
     reprojection_errors = 0.5 * (reproj_a + reproj_b)
-    reprojection_limit = 12.0 if epipolar_limit_px is not None else float(
-        np.clip(1.5 * epipolar_limit, 3.0, 6.0)
+    reprojection_limit = (
+        max(12.0, 0.65 * epipolar_limit)
+        if epipolar_limit_px is not None
+        else float(np.clip(1.5 * epipolar_limit, 3.0, 6.0))
     )
 
     ra, ta = ext_a[:, :3], ext_a[:, 3]

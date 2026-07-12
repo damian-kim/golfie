@@ -170,6 +170,8 @@ export function CalibratePage() {
   const [result, setResult] = useState<CalibrationResult | null>(null);
 
   const [logs, setLogs] = useState<string[]>([]);
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [progressMessage, setProgressMessage] = useState("Preparing calibration...");
   const logContainerRef = useRef<HTMLDivElement>(null);
 
   // Poll calibration progress logs while busy
@@ -179,15 +181,21 @@ export function CalibratePage() {
     }
 
     const poll = () => {
-      api.getCalibrationLogs()
-        .then((res) => {
-          setLogs(res);
+      Promise.all([api.getCalibrationLogs(), api.getCalibrationStatus()])
+        .then(([newLogs, status]) => {
+          setLogs(newLogs);
+          // Ignore the completed status from a previous run during the tiny
+          // window before the new upload request reaches the backend.
+          if (status.running) {
+            setProgressPercent(Math.min(99, Math.max(1, status.progress)));
+            setProgressMessage(status.message);
+          }
         })
         .catch(() => {});
     };
 
     poll();
-    const interval = setInterval(poll, 1200);
+    const interval = setInterval(poll, 500);
     return () => clearInterval(interval);
   }, [busy]);
 
@@ -197,23 +205,6 @@ export function CalibratePage() {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
   }, [logs]);
-
-  const getCalibrationProgress = () => {
-    if (logs.length === 0) return 5;
-    const lastLog = logs[logs.length - 1].toLowerCase();
-    if (lastLog.includes("starting")) return 10;
-    if (lastLog.includes("writing")) return 25;
-    if (lastLog.includes("extracting")) return 45;
-    if (lastLog.includes("camera a")) return 65;
-    if (lastLog.includes("camera b")) return 80;
-    if (lastLog.includes("stereo")) return 90;
-    if (lastLog.includes("saving")) return 95;
-    if (lastLog.includes("completed")) return 100;
-    if (lastLog.includes("failed")) return 100;
-    return 50; // fallback
-  };
-
-  const progressPercent = getCalibrationProgress();
 
   // Preset state
   const [selectedPresetId, setSelectedPresetId] = useState<string>("charuco_a4_std");
@@ -229,6 +220,7 @@ export function CalibratePage() {
   const [markerMode, setMarkerMode] = useState<"ratio" | "custom">("ratio");
   const [markerRatio, setMarkerRatio] = useState(75); // percent
   const [markerSize, setMarkerSize] = useState(15);
+  const [measuredBaselineM, setMeasuredBaselineM] = useState<number | "">("");
 
   const [fileA, setFileA] = useState<File | null>(null);
   const [fileB, setFileB] = useState<File | null>(null);
@@ -291,6 +283,8 @@ export function CalibratePage() {
     e.preventDefault();
     if (!fileA || !fileB) return;
     setLogs([]);
+    setProgressPercent(1);
+    setProgressMessage("Uploading calibration videos...");
     setBusy(true);
     setError(null);
     setResult(null);
@@ -305,8 +299,11 @@ export function CalibratePage() {
         gridCols,
         gridRows,
         squareSizeMeters,
-        markerSizeMeters
+        markerSizeMeters,
+        measuredBaselineM === "" ? undefined : measuredBaselineM
       );
+      setProgressPercent(100);
+      setProgressMessage("Calibration complete.");
       setResult(res);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong during calibration.");
@@ -598,6 +595,24 @@ export function CalibratePage() {
                     </div>
                   )}
 
+                  <label className="field">
+                    <span className="field__label">Lens-to-lens camera baseline (metres)</span>
+                    <input
+                      type="number"
+                      min="0.1"
+                      max="10"
+                      step="0.001"
+                      value={measuredBaselineM}
+                      onChange={(e) => setMeasuredBaselineM(
+                        e.target.value === "" ? "" : Number(e.target.value)
+                      )}
+                      placeholder="Recommended: measure optical-centre separation"
+                    />
+                    <span className="field__hint">
+                      Straight-line distance between the two camera lenses. This anchors stereo scale and ball speed.
+                    </span>
+                  </label>
+
                 </div>
 
                 {/* Visual Aid Column */}
@@ -693,6 +708,9 @@ export function CalibratePage() {
                 transition: "width 0.4s cubic-bezier(0.1, 0.8, 0.2, 1)",
                 borderRadius: "4px"
               }} />
+            </div>
+            <div style={{ marginTop: 8, fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)" }}>
+              {progressMessage}
             </div>
           </div>
 

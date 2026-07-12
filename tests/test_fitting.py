@@ -40,7 +40,7 @@ def test_fit_initial_conditions_perfect():
     
     # Verify velocity vector matches the launch conditions
     vx = 50.0 * np.cos(np.radians(12.0)) * np.cos(np.radians(2.0))
-    vy = 50.0 * np.cos(np.radians(12.0)) * np.sin(np.radians(2.0))
+    vy = -50.0 * np.cos(np.radians(12.0)) * np.sin(np.radians(2.0))
     vz = 50.0 * np.sin(np.radians(12.0))
     
     assert res.initial_velocity_mps[0] == pytest.approx(vx, abs=1e-2)

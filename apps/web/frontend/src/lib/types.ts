@@ -78,6 +78,13 @@ export interface CalibrationResult {
   reprojection_error_px: number | null;
   confidence: number;
   calibration_target: string | null;
+  board_grid_size: [number, number] | null;
+  board_square_length_m: number | null;
+  board_marker_length_m: number | null;
+  camera_a_calibration_fps: number | null;
+  camera_b_calibration_fps: number | null;
+  measured_baseline_m: number | null;
+  baseline_source: string;
   is_valid: boolean;
 }
 

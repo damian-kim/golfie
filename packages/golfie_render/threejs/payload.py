@@ -8,7 +8,7 @@ Golfie world frame and the Three.js scene frame meet):
     --------------------------------------------   ---------------------
     +X  target line / downrange                ->  scene X (downrange)
     +Z  vertical up                             ->  scene Y (Three.js "up")
-    +Y  lateral / side                          ->  scene Z (side)
+    +Y  physical left (right-handed frame)      -> -scene Z (UI right-positive)
 
 This keeps "up" on the Three.js Y axis (its convention) while keeping
 downrange distance on a single, easy-to-reason-about scene axis.
@@ -24,7 +24,7 @@ def _to_scene_point(p: TrackedPoint3D) -> dict:
         "t": p.time_seconds,
         "x": p.x_m,
         "y": p.z_m,
-        "z": p.y_m,
+        "z": -p.y_m,
         "confidence": p.confidence,
     }
 

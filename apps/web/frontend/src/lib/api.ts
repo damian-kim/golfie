@@ -115,6 +115,10 @@ export const api = {
     return request<string[]>("/calibration/logs");
   },
 
+  getCalibrationStatus(): Promise<{ running: boolean; progress: number; stage: string; message: string }> {
+    return request("/calibration/status");
+  },
+
   async uploadAndCalibrate(
     fileA: File,
     fileB: File,
@@ -122,7 +126,8 @@ export const api = {
     gridCols: number = 11,
     gridRows: number = 8,
     squareSize: number = 0.04,
-    markerSize: number = 0.03
+    markerSize: number = 0.03,
+    measuredBaseline?: number
   ): Promise<CalibrationResult> {
     const form = new FormData();
     form.append("file_a", fileA);
@@ -132,6 +137,9 @@ export const api = {
     form.append("grid_rows", gridRows.toString());
     form.append("square_size", squareSize.toString());
     form.append("marker_size", markerSize.toString());
+    if (measuredBaseline !== undefined) {
+      form.append("measured_baseline", measuredBaseline.toString());
+    }
 
     return request<CalibrationResult>("/calibration/upload", {
       method: "POST",

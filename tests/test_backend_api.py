@@ -149,9 +149,13 @@ def test_full_session_lifecycle_with_real_pipeline(client, sample_clip, monkeypa
             [0.0, 0.0, 1.0, 0.0],
             [0.0, 0.0, 0.0, 1.0]
         ],
-        "reprojection_error_px": 0.1,
-        "confidence": 0.95,
-        "is_valid": True
+            "reprojection_error_px": 0.1,
+            "confidence": 0.95,
+            "measured_baseline_m": 1.0,
+            "baseline_m": 1.0,
+            "camera_a_calibration_fps": 240.0,
+            "camera_b_calibration_fps": 240.0,
+            "is_valid": True
     }
     calib_resp = client.post(f"/sessions/{sid}/calibration", json=calibration_data)
     assert calib_resp.status_code == 200
@@ -232,7 +236,9 @@ def test_calibration_endpoints(client, tmp_path, monkeypatch):
         camera_a_intrinsics=mock_intrinsics.as_matrix(),
         camera_b_intrinsics=mock_intrinsics.as_matrix(),
         camera_a_extrinsics=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
-        camera_b_extrinsics=[[1.0, 0.0, 0.0, -1.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+            camera_b_extrinsics=[[1.0, 0.0, 0.0, -1.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+            stereo_translation_m=[-1.0, 0.0, 0.0],
+            baseline_m=1.0,
         reprojection_error_px=0.15,
         confidence=0.92,
         calibration_target="charuco",
@@ -263,10 +269,14 @@ def test_calibration_endpoints(client, tmp_path, monkeypatch):
                 "grid_cols": "11",
                 "grid_rows": "8",
                 "square_size": "0.04",
-                "marker_size": "0.03"
+                "marker_size": "0.03",
+                "measured_baseline": "2.0",
             }
         )
     assert upload_resp.status_code == 200
+    assert upload_resp.json()["baseline_m"] == 2.0
+    assert upload_resp.json()["stereo_translation_m"] == [-2.0, 0.0, 0.0]
+    assert upload_resp.json()["baseline_source"] == "tape_measured_lens_centres"
     assert upload_resp.json()["reprojection_error_px"] == 0.15
 
     # 4. Now active calibration should return 200
@@ -309,4 +319,3 @@ def test_mixed_rate_calibration_pairing_uses_snapped_a_timestamp():
     aligned_a_time = idx_a / 30.0
     aligned_b_time = idx_b / 120.0 + offset
     assert abs(aligned_a_time - aligned_b_time) <= 0.5 / 120.0
-

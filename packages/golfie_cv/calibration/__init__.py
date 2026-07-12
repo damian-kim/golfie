@@ -18,6 +18,40 @@ import numpy as np
 
 MIN_CHARUCO_CORNERS = 6
 
+
+def _solve_stable_phone_intrinsics(obj_points, img_points, image_size):
+    """Calibrate a video camera without letting sparse board coverage invent
+    extreme lens distortion.
+
+    Phone video has square pixels and its encoded crop is centred.  Enforcing
+    those known properties leaves k1/k2 to describe radial distortion while
+    avoiding the high-order/pincipal-point overfit that catastrophically
+    changes triangulation near the bottom of a 240-fps frame.
+    """
+    camera_matrix = cv2.initCameraMatrix2D(
+        obj_points, img_points, image_size, aspectRatio=1.0
+    ).astype(np.float64)
+    focal = float(0.5 * (camera_matrix[0, 0] + camera_matrix[1, 1]))
+    camera_matrix[0, 0] = focal
+    camera_matrix[1, 1] = focal
+    camera_matrix[0, 2] = (image_size[0] - 1.0) * 0.5
+    camera_matrix[1, 2] = (image_size[1] - 1.0) * 0.5
+    flags = (
+        cv2.CALIB_USE_INTRINSIC_GUESS
+        | cv2.CALIB_FIX_ASPECT_RATIO
+        | cv2.CALIB_FIX_PRINCIPAL_POINT
+        | cv2.CALIB_ZERO_TANGENT_DIST
+        | cv2.CALIB_FIX_K3
+    )
+    return cv2.calibrateCamera(
+        obj_points,
+        img_points,
+        image_size,
+        camera_matrix,
+        np.zeros((5, 1), dtype=np.float64),
+        flags=flags,
+    )
+
 def calibrate_intrinsics(
     calibration_images: Sequence[str | Path],
     board_type: str = "charuco",
@@ -162,8 +196,8 @@ def calibrate_intrinsics(
     img_points = [np.array(p, dtype=np.float32) for p in img_points]
 
     try:
-        ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
-            obj_points, img_points, image_size, None, None, flags=0
+        ret, mtx, dist, rvecs, tvecs = _solve_stable_phone_intrinsics(
+            obj_points, img_points, image_size
         )
 
         # A few blurred or partially occluded frames can dominate an otherwise
@@ -183,8 +217,8 @@ def calibrate_intrinsics(
             if 5 <= len(keep) < len(obj_points):
                 kept_obj = [obj_points[i] for i in keep]
                 kept_img = [img_points[i] for i in keep]
-                ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
-                    kept_obj, kept_img, image_size, None, None, flags=0
+                ret, mtx, dist, rvecs, tvecs = _solve_stable_phone_intrinsics(
+                    kept_obj, kept_img, image_size
                 )
     except cv2.error as e:
         raise ValueError(
@@ -193,12 +227,15 @@ def calibrate_intrinsics(
             "variation/frames with high-quality board detections in the calibration video."
         ) from e
 
+    distortion = np.zeros(5, dtype=np.float64)
+    flattened_distortion = np.asarray(dist, dtype=np.float64).reshape(-1)
+    distortion[: min(5, len(flattened_distortion))] = flattened_distortion[:5]
     return CameraIntrinsics(
         fx=float(mtx[0, 0]),
         fy=float(mtx[1, 1]),
         cx=float(mtx[0, 2]),
         cy=float(mtx[1, 2]),
-        distortion=[float(x) for x in dist[0]],
+        distortion=[float(x) for x in distortion],
         image_width=image_size[0],
         image_height=image_size[1],
         reprojection_error_px=float(ret),
@@ -531,5 +568,15 @@ def calibrate_stereo(
         reprojection_error_px=float(ret),
         confidence=confidence,
         calibration_target=board_type,
+        board_grid_size=tuple(
+            int(value)
+            for value in (
+                detected_grid_size
+                if board_type == "charuco" and detected_grid_size is not None
+                else grid_size
+            )
+        ),
+        board_square_length_m=float(square_length),
+        board_marker_length_m=float(marker_length) if board_type == "charuco" else None,
         is_valid=is_valid,
     )

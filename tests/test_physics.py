@@ -57,9 +57,9 @@ def test_drag_reduces_carry_distance():
     assert with_drag.carry_m < no_drag.carry_m
 
 
-def test_positive_horizontal_launch_lands_on_positive_y_side():
+def test_positive_rightward_horizontal_launch_lands_on_negative_internal_y_side():
     result = simulate_from_launch_conditions(40.0, 12.0, 5.0, params=FlightParams())
-    assert result.side_deviation_m > 0
+    assert result.side_deviation_m < 0
 
 
 def test_magnus_lift_increases_carry_for_backspin():

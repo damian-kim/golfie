@@ -79,4 +79,11 @@ class CalibrationResult(BaseModel):
     reprojection_error_px: Optional[float] = None
     confidence: float = 0.0
     calibration_target: Optional[str] = None  # "checkerboard" | "charuco" | "aruco" | "apriltag"
+    board_grid_size: Optional[Tuple[int, int]] = None
+    board_square_length_m: Optional[float] = None
+    board_marker_length_m: Optional[float] = None
+    camera_a_calibration_fps: Optional[float] = None
+    camera_b_calibration_fps: Optional[float] = None
+    measured_baseline_m: Optional[float] = None
+    baseline_source: str = "stereo_board_solve"
     is_valid: bool = False
