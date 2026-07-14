@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from golfie_physics.integrators.rk4 import integrate, rk4_step
-from golfie_physics.models import FlightParams, simulate_from_launch_conditions
+from golfie_physics.models import FlightParams, estimate_ground_run, simulate_from_launch_conditions
 
 
 def test_rk4_step_matches_exponential_decay_closed_form():
@@ -86,3 +86,18 @@ def test_to_tracked_points_is_time_ordered_and_clips_height_at_zero():
     assert times == sorted(times)
     assert all(p.z_m >= 0.0 for p in points)
     assert points[0].time_seconds == pytest.approx(0.0)
+
+
+def test_ground_run_extends_total_distance_and_ends_at_rest():
+    flight = simulate_from_launch_conditions(55.0, 13.0, 0.0, params=FlightParams())
+    ground = estimate_ground_run(flight)
+    assert ground.run_m > 0.0
+    assert ground.samples[-1].time_s > flight.landing_sample.time_s
+    assert np.linalg.norm(ground.samples[-1].position_m[:2]) > flight.carry_m
+    assert np.allclose(ground.samples[-1].velocity_mps, 0.0)
+
+
+def test_steeper_landing_rolls_less_at_similar_terminal_speed():
+    shallow = simulate_from_launch_conditions(50.0, 10.0, 0.0, params=FlightParams())
+    steep = simulate_from_launch_conditions(50.0, 30.0, 0.0, params=FlightParams())
+    assert estimate_ground_run(steep).run_m < estimate_ground_run(shallow).run_m

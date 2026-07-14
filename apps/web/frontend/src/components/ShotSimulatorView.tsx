@@ -4,6 +4,7 @@ import { MetricCard } from "./MetricCard";
 import { formatMetric } from "../lib/units";
 import { DrivingRangeScene } from "../scenes/DrivingRangeScene";
 import { API_BASE_URL } from "../lib/api";
+import { SwingReplayModal } from "./SwingReplayModal";
 import "./ShotSimulatorView.css";
 
 interface ShotSimulatorViewProps {
@@ -18,45 +19,69 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
   const [videoError, setVideoError] = useState<string | null>(null);
   const [outlinesReady, setOutlinesReady] = useState(false);
   const [outlineStatus, setOutlineStatus] = useState("Checking outline availability...");
+  const [outlinesRendering, setOutlinesRendering] = useState(false);
+  const [outlineRefreshToken, setOutlineRefreshToken] = useState(0);
   const [playToken, setPlayToken] = useState(0);
-
-  const videoAUrl = `${API_BASE_URL}/sessions/${payload.session_id}/video/camera_a/stripped`;
-  const videoBUrl = `${API_BASE_URL}/sessions/${payload.session_id}/video/camera_b/stripped`;
 
   useEffect(() => {
     if (payload.session_id === "sample") return;
     let cancelled = false;
-    fetch(`${API_BASE_URL}/sessions/${payload.session_id}/artifacts`)
-      .then(async (response) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async (queueIfIdle: boolean) => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/sessions/${payload.session_id}/artifacts`);
         if (!response.ok) throw new Error(`artifact status request failed (${response.status})`);
-        return response.json();
-      })
-      .then((status) => {
+        let status = await response.json();
+        if (queueIfIdle && !status.outline_ready && status.outline_render_status?.stage === "idle") {
+          const queued = await fetch(`${API_BASE_URL}/sessions/${payload.session_id}/artifacts/outlines`, { method: "POST" });
+          if (!queued.ok) throw new Error(`outline generation request failed (${queued.status})`);
+          status = { ...status, outline_render_status: await queued.json() };
+        }
         if (cancelled) return;
         const ready = Boolean(status.outline_ready);
+        const job = status.outline_render_status || {};
         setOutlinesReady(ready);
+        setOutlinesRendering(Boolean(job.running));
         setOutlineStatus(ready
           ? "Swing outline videos are ready."
-          : status.outline_unavailable_reason || "Swing outline videos are unavailable.");
-      })
-      .catch((error) => {
+          : job.error || job.message || status.outline_unavailable_reason || "Swing outline videos are unavailable.");
+        if (!ready && job.running) timer = setTimeout(() => void poll(false), 2000);
+      } catch (error) {
         if (cancelled) return;
         setOutlinesReady(false);
-        setOutlineStatus(`Could not check outline availability: ${error.message}`);
-      });
-    return () => { cancelled = true; };
-  }, [payload.session_id]);
+        setOutlinesRendering(false);
+        setOutlineStatus(`Could not generate swing outlines: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+    void poll(true);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [payload.session_id, outlineRefreshToken]);
 
-  const handleVideoEnded = () => {
-    setShowPrecursor(false);
-    setVideoError(null);
-    setPlayToken((t) => t + 1);
+  const handleOutlineClick = async () => {
+    if (outlinesReady) {
+      setVideoError(null);
+      setShowPrecursor(true);
+      return;
+    }
+    setOutlinesRendering(true);
+    setOutlineStatus("Swing outline rendering queued.");
+    try {
+      const response = await fetch(`${API_BASE_URL}/sessions/${payload.session_id}/artifacts/outlines`, { method: "POST" });
+      if (!response.ok) throw new Error(`request failed (${response.status})`);
+      setOutlineRefreshToken((token) => token + 1);
+    } catch (error) {
+      setOutlinesRendering(false);
+      setOutlineStatus(`Could not generate swing outlines: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const handleSkip = () => {
     setShowPrecursor(false);
     setVideoError(null);
-    setPlayToken((t) => t + 1);
   };
 
   const handleVideoError = () => {
@@ -64,12 +89,7 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
   };
 
   const handleReplayClick = () => {
-    if (payload.session_id !== "sample" && outlinesReady) {
-      setVideoError(null);
-      setShowPrecursor(true);
-    } else {
-      setPlayToken((t) => t + 1);
-    }
+    setPlayToken((t) => t + 1);
   };
 
   return (
@@ -77,6 +97,7 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
       {/* Immersive Full-Screen Canvas behind the HUD overlay */}
       <div className="shot-simulator-hud__canvas-container">
         <DrivingRangeScene
+          key={payload.session_id}
           simulated={payload.simulated_trajectory}
           measured={payload.measured_points}
           fitted={payload.fitted_points}
@@ -156,11 +177,11 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
                 borderColor: "rgba(76, 194, 115, 0.4)",
                 color: "#ffffff"
               }}
-              onClick={handleReplayClick}
-              disabled={!outlinesReady}
+              onClick={handleOutlineClick}
+              disabled={outlinesRendering}
               title={outlineStatus}
             >
-              <span>{outlinesReady ? "Replay Swing Outlines" : "Swing Outlines Unavailable"}</span>
+              <span>{outlinesReady ? "Open Swing Comparison" : outlinesRendering ? "Rendering Swing Comparison..." : "Generate Swing Comparison"}</span>
             </button>
             {!outlinesReady && (
               <p className="mono" style={{ fontSize: "10px", lineHeight: 1.4, opacity: 0.7, margin: "8px 0 0" }}>
@@ -235,64 +256,16 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
 
       {/* Precursor Outlines Replay Overlay */}
       {showPrecursor && (
-        <div className="shot-simulator-precursor">
-          <div className="precursor-overlay__content">
-            <div className="precursor-header">
-              <div className="precursor-header__title">Swing Motion Outlines</div>
-              <div className="precursor-header__subtitle mono">YOLOv8 DETECTED SWING PATHS</div>
-            </div>
-            
-            {videoError ? (
-              <div style={{ padding: "48px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-                <span style={{ fontSize: "32px" }}>⚠️</span>
-                <p style={{ color: "var(--color-danger)", fontSize: "14px", maxWidth: "400px", margin: 0, lineHeight: 1.5 }}>
-                  {videoError}
-                </p>
-                <button className="primary-button" style={{ marginTop: "12px" }} onClick={handleSkip}>
-                  Continue to Simulator
-                </button>
-              </div>
-            ) : (
-              <div className="precursor-videos">
-                <div className="precursor-video-wrapper camera-a">
-                  <div className="precursor-video-label">CAMERA A · DOWN-THE-LINE</div>
-                  <video 
-                    src={videoAUrl} 
-                    autoPlay 
-                    muted 
-                    playsInline
-                    onEnded={handleVideoEnded}
-                    onError={handleVideoError}
-                    className="precursor-video"
-                  />
-                </div>
-                <div className="precursor-video-wrapper camera-b">
-                  <div className="precursor-video-label">CAMERA B · FACE-ON</div>
-                  <video 
-                    src={videoBUrl} 
-                    autoPlay 
-                    muted 
-                    playsInline
-                    onError={handleVideoError}
-                    className="precursor-video"
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="precursor-footer">
-              <div className="precursor-progress-bar">
-                <div className="precursor-progress-fill" style={{ animationDuration: '5s' }} />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
-                <span className="precursor-telemetry mono">SWING SYNC PATTERNS ACTIVE ... 100%</span>
-                <button className="precursor-skip-btn" onClick={handleSkip}>
-                  SKIP REPLAY & FLY →
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <SwingReplayModal
+          sessionId={payload.session_id}
+          onClose={handleSkip}
+          onVideoError={handleVideoError}
+          error={videoError}
+          onPlayBallFlight={() => {
+            handleSkip();
+            setPlayToken((token) => token + 1);
+          }}
+        />
       )}
     </div>
   );

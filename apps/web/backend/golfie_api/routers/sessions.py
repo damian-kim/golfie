@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import shutil
 import threading
+import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Optional
@@ -37,6 +38,23 @@ from golfie_api.config import CALIBRATION_DIR
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 _processing_locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
+_outline_jobs_lock = threading.Lock()
+_outline_jobs: dict[str, dict] = {}
+OUTLINE_RENDER_VERSION = 2
+
+
+def _outline_artifacts_current(session_dir: Path) -> bool:
+    required = (
+        "camera_a_stripped.mp4", "camera_b_stripped.mp4",
+        "camera_a_replay_original.mp4", "camera_b_replay_original.mp4",
+    )
+    if not all((session_dir / name).exists() and (session_dir / name).stat().st_size > 0 for name in required):
+        return False
+    marker = session_dir / "outline_render_version.json"
+    try:
+        return json.loads(marker.read_text(encoding="utf-8")).get("version") == OUTLINE_RENDER_VERSION
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 class CreateSessionRequest(BaseModel):
@@ -51,6 +69,105 @@ def _get_session_or_404(session_id: str) -> Session:
         return session_store.load(session_id)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _outline_worker(session_id: str) -> None:
+    try:
+        from ultralytics import YOLO
+        from golfie_cv.detection import detect_impact_frame_fast, render_stripped_outlines_video
+
+        session = session_store.load(session_id)
+        if session.camera_a is None or session.camera_b is None:
+            raise RuntimeError("Both camera videos are required for outline rendering.")
+        model = YOLO("yolov8n-seg.pt")
+        session_dir = session_store.session_dir(session_id)
+        cameras = (
+            ("camera_a", Path(session.camera_a.video_path)),
+            ("camera_b", Path(session.camera_b.video_path)),
+        )
+        for camera_index, (camera_name, video_path) in enumerate(cameras):
+            with _outline_jobs_lock:
+                _outline_jobs[session_id].update(
+                    stage=f"rendering_{camera_name}",
+                    message=f"Rendering {camera_name.replace('_', ' ')} swing outlines...",
+                    progress=10 + camera_index * 42,
+                )
+            impact_frame, _ = detect_impact_frame_fast(video_path)
+            metadata = read_video_metadata(video_path)
+            # Use time-based bounds so 30/120/240 fps phone videos cover the
+            # same swing interval and remain comparable in the replay UI.
+            start_frame = max(0, impact_frame - round(1.25 * metadata.fps))
+            end_frame = min(metadata.frame_count, impact_frame + round(1.75 * metadata.fps))
+            final_path = session_dir / f"{camera_name}_stripped.mp4"
+            temporary_path = session_dir / f"{camera_name}_stripped.rendering.mp4"
+            comparison_path = session_dir / f"{camera_name}_replay_original.mp4"
+            comparison_temporary = session_dir / f"{camera_name}_replay_original.rendering.mp4"
+            temporary_path.unlink(missing_ok=True)
+            comparison_temporary.unlink(missing_ok=True)
+            render_stripped_outlines_video(
+                video_path=video_path,
+                start_frame=start_frame,
+                end_frame=end_frame,
+                output_path=temporary_path,
+                model=model,
+                # Fifteen fresh masks per playback second is smooth for a
+                # slow-motion diagnostic replay and bounds CPU inference cost
+                # independently of whether the phone stored 30, 120, or 240fps.
+                inference_stride=max(1, round(metadata.fps / 15.0)),
+                inference_size=384,
+                comparison_output_path=comparison_temporary,
+            )
+            temporary_path.replace(final_path)
+            comparison_temporary.replace(comparison_path)
+            temporary_map = temporary_path.with_name(f"{temporary_path.stem}_frame_map.json")
+            final_map = final_path.with_name(f"{final_path.stem}_frame_map.json")
+            if temporary_map.exists():
+                temporary_map.replace(final_map)
+        (session_dir / "outline_render_version.json").write_text(
+            json.dumps({"version": OUTLINE_RENDER_VERSION}), encoding="utf-8"
+        )
+        with _outline_jobs_lock:
+            _outline_jobs[session_id].update(
+                running=False,
+                stage="complete",
+                message="Swing outline videos are ready.",
+                progress=100,
+                error=None,
+            )
+    except Exception as exc:
+        with _outline_jobs_lock:
+            _outline_jobs.setdefault(session_id, {}).update(
+                running=False,
+                stage="failed",
+                message="Swing outline rendering failed.",
+                error=str(exc),
+            )
+
+
+def _queue_outline_render(session_id: str) -> dict:
+    session_dir = session_store.session_dir(session_id)
+    if _outline_artifacts_current(session_dir):
+        return {
+            "running": False,
+            "stage": "complete",
+            "message": "Swing outline videos are ready.",
+            "progress": 100,
+            "error": None,
+        }
+    with _outline_jobs_lock:
+        current = _outline_jobs.get(session_id)
+        if current and current.get("running"):
+            return dict(current)
+        status = {
+            "running": True,
+            "stage": "queued",
+            "message": "Swing outline rendering queued.",
+            "progress": 1,
+            "error": None,
+        }
+        _outline_jobs[session_id] = status
+    threading.Thread(target=_outline_worker, args=(session_id,), daemon=True).start()
+    return dict(status)
 
 
 @router.post("", response_model=Session)
@@ -251,6 +368,21 @@ def get_stripped_video(session_id: str, camera_id: str):
     return FileResponse(str(video_path), media_type="video/mp4")
 
 
+@router.get("/{session_id}/video/{camera_id}/replay-original")
+def get_replay_original_video(session_id: str, camera_id: str):
+    """Return the browser-compatible original frames matching an outline clip."""
+    from fastapi.responses import FileResponse
+    _get_session_or_404(session_id)
+    cam_name = camera_id.replace("-", "_")
+    video_path = session_store.session_dir(session_id) / f"{cam_name}_replay_original.mp4"
+    if not video_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Original comparison replay not found for {camera_id} in session {session_id}.",
+        )
+    return FileResponse(str(video_path), media_type="video/mp4")
+
+
 @router.get("/{session_id}/video/{camera_id}/frame_map")
 def get_frame_map(session_id: str, camera_id: str) -> dict:
     _get_session_or_404(session_id)
@@ -288,19 +420,51 @@ def get_artifacts(session_id: str) -> dict:
         "camera_a": exists("camera_a_stripped.mp4"),
         "camera_b": exists("camera_b_stripped.mp4"),
     }
-    outline_ready = all(outlines.values())
+    originals = {
+        "camera_a": exists("camera_a_replay_original.mp4"),
+        "camera_b": exists("camera_b_replay_original.mp4"),
+    }
+    outline_ready = all(outlines.values()) and all(originals.values()) and _outline_artifacts_current(session_dir)
+    with _outline_jobs_lock:
+        job = dict(_outline_jobs.get(session_id, {}))
+    if outline_ready:
+        job = {
+            "running": False,
+            "stage": "complete",
+            "message": "Swing outline videos are ready.",
+            "progress": 100,
+            "error": None,
+        }
+    elif not job:
+        job = {
+            "running": False,
+            "stage": "idle",
+            "message": "Swing outlines have not been generated yet.",
+            "progress": 0,
+            "error": None,
+        }
     return {
         "outline_videos": outlines,
+        "outline_original_videos": originals,
         "outline_ready": outline_ready,
+        "outline_render_status": job,
         "outline_unavailable_reason": None if outline_ready else (
-            "Swing-outline rendering is optional and was disabled or did not complete. "
-            "Set GOLFIE_RENDER_OUTLINES=1 before processing to generate both videos."
+            job.get("error") or job.get("message")
         ),
         "ball_selection_replays": {
             "camera_a": exists("camera_a_ball_replay.mp4"),
             "camera_b": exists("camera_b_ball_replay.mp4"),
         },
     }
+
+
+@router.post("/{session_id}/artifacts/outlines")
+def generate_outlines(session_id: str) -> dict:
+    """Queue bounded, asynchronous YOLO swing-outline rendering."""
+    session = _get_session_or_404(session_id)
+    if session.camera_a is None or session.camera_b is None:
+        raise HTTPException(status_code=409, detail="Upload both camera videos first.")
+    return _queue_outline_render(session_id)
 
 
 @router.get("/{session_id}/logs", response_model=list[str])

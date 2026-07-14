@@ -6,6 +6,16 @@ export interface SceneBounds {
   maxLateralAbsM: number;
 }
 
+export function rangeGroundHeight(x: number, z: number): number {
+  const rawBlend = Math.min(Math.max((x - 8) / 70, 0), 1);
+  const downrangeBlend = rawBlend * rawBlend * (3 - 2 * rawBlend);
+  const broadRoll = Math.sin(x * 0.021) * 0.55;
+  const crossingRoll = Math.sin(x * 0.047 + z * 0.012) * 0.32;
+  const lateralRoll = Math.cos(z * 0.035 - x * 0.006) * 0.22;
+  const edgeRise = Math.min(Math.abs(z) / 90, 1) ** 2 * 0.28;
+  return downrangeBlend * (broadRoll + crossingRoll + lateralRoll + edgeRise);
+}
+
 export function computeSceneBounds(pointSets: ScenePoint[][]): SceneBounds {
   let maxDownrangeM = 1;
   let maxHeightM = 1;
@@ -25,8 +35,8 @@ export function computeSceneBounds(pointSets: ScenePoint[][]): SceneBounds {
 export function fitCameraToBounds(bounds: SceneBounds) {
   const range = bounds.maxDownrangeM;
   return {
-    position: [-range * 0.12 - 10, range * 0.16 + 8, range * 0.32 + 14] as [number, number, number],
-    target: [range * 0.55, Math.max(bounds.maxHeightM * 0.3, 2), 0] as [number, number, number],
+    position: [-10, 2.8, 12] as [number, number, number],
+    target: [Math.min(Math.max(range * 0.16, 18), 34), 1.35, 0] as [number, number, number],
   };
 }
 

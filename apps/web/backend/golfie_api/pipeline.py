@@ -52,6 +52,7 @@ def run_real_processing(session: Session) -> ShotResult:
     from golfie_cv.tracking import track_ball_2d, track_ball_stereo, track_optic_ball_stereo
     from golfie_cv.triangulation import triangulate_track
     from golfie_physics.fitting import fit_initial_conditions
+    from golfie_physics.models.ground import estimate_ground_run
     from golfie_physics.models.projectile import simulate_flight
     from golfie_core.schemas import MetricValue, MetricSource, TrackedPoint2D, TrackedPoint3D
     from golfie_core.schemas.shot import ShotMetrics, ShotResult
@@ -694,6 +695,7 @@ def run_real_processing(session: Session) -> ShotResult:
         max_time_s=12.0,
         dt=0.001
     )
+    ground_run = estimate_ground_run(full_flight)
 
     # Map a bounded number of simulated points to the absolute timeline.  The
     # solver keeps its 1 ms integration step for stable landing metrics, but
@@ -704,6 +706,7 @@ def run_real_processing(session: Session) -> ShotResult:
     if len(flight_samples) > 400:
         sample_indices = np.linspace(0, len(flight_samples) - 1, 400).round().astype(int)
         flight_samples = [flight_samples[int(index)] for index in sample_indices]
+    replay_samples = [*flight_samples, *ground_run.samples]
     simulated_trajectory_3d = [
         TrackedPoint3D(
             time_seconds=s.time_s + t0,
@@ -712,7 +715,7 @@ def run_real_processing(session: Session) -> ShotResult:
             z_m=float(s.position_m[2]),
             confidence=flight_confidence,
         )
-        for s in flight_samples
+        for s in replay_samples
     ]
 
     # Map fitted points (sampled at measured timestamps)
@@ -757,9 +760,11 @@ def run_real_processing(session: Session) -> ShotResult:
         "Target line is inferred from the Camera A down-the-line orientation; "
         "use an explicitly aligned rig for simulator-grade left/right values."
     )
-    flight_notes = (
-        "Drag-only flight estimate to first ground contact; spin/lift and bounce/roll "
-        "are not measured by this MVP."
+    flight_notes = "Drag-only flight estimate to first ground contact; spin/lift are not measured by this MVP."
+    total_notes = (
+        f"Experimental fairway bounce/roll estimate from terminal angle "
+        f"({ground_run.landing_angle_deg:.1f} deg) and landing speed. Spin, turf firmness, "
+        "slope, and moisture are not measured."
     )
     metrics = ShotMetrics(
         ball_speed_mps=MetricValue(
@@ -787,10 +792,10 @@ def run_real_processing(session: Session) -> ShotResult:
             notes=flight_notes,
         ),
         total_m=MetricValue(
-            value=full_flight.carry_m,
+            value=full_flight.carry_m + ground_run.run_m,
             source=MetricSource.EXPERIMENTAL,
-            confidence=min(flight_confidence, 0.35),
-            notes="Reported at first ground contact because bounce and roll are not modeled.",
+            confidence=min(flight_confidence, 0.3),
+            notes=total_notes,
         ),
         apex_m=MetricValue(
             value=full_flight.apex_m,
@@ -799,7 +804,7 @@ def run_real_processing(session: Session) -> ShotResult:
             notes=flight_notes,
         ),
         side_deviation_m=MetricValue(
-            value=-full_flight.side_deviation_m,
+            value=-float(ground_run.samples[-1].position_m[1]),
             source=MetricSource.ESTIMATED,
             confidence=flight_confidence,
             notes=f"{flight_notes} {direction_notes}",

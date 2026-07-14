@@ -5,6 +5,7 @@ from golfie_physics.models.projectile import (
     simulate_flight,
     simulate_from_launch_conditions,
 )
+from golfie_physics.models.ground import GroundRunResult, estimate_ground_run
 
 __all__ = [
     "FlightParams",
@@ -12,4 +13,6 @@ __all__ = [
     "FlightSample",
     "simulate_flight",
     "simulate_from_launch_conditions",
+    "GroundRunResult",
+    "estimate_ground_run",
 ]

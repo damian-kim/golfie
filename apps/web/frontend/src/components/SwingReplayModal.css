@@ -1,0 +1,59 @@
+.swing-replay {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(3, 7, 9, 0.92);
+  backdrop-filter: blur(14px);
+}
+
+.swing-replay__panel {
+  width: min(1280px, 96vw);
+  max-height: 96vh;
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(13, 20, 18, 0.97);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.72);
+}
+
+.swing-replay__header,
+.swing-replay__controls,
+.swing-replay__timeline {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.swing-replay__header { justify-content: space-between; margin-bottom: 14px; }
+.swing-replay__header h2 { margin: 0; color: #fff; text-transform: uppercase; letter-spacing: .07em; }
+.swing-replay__header p { margin: 4px 0 0; color: var(--color-muted); font: 11px var(--font-mono); }
+.swing-replay__header button { background: transparent; border: 0; color: #fff; font-size: 20px; cursor: pointer; }
+
+.swing-replay__cameras { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.swing-replay__camera { display: flex; flex-direction: column; gap: 8px; }
+.swing-replay__camera h3 { margin: 0; color: var(--color-turf-bright); font: 700 11px var(--font-mono); text-transform: uppercase; }
+.swing-replay__camera figure { position: relative; margin: 0; overflow: hidden; border: 1px solid rgba(255,255,255,.1); border-radius: 6px; background: #000; }
+.swing-replay__camera figcaption { position: absolute; z-index: 1; top: 6px; left: 7px; padding: 3px 6px; border-radius: 3px; background: rgba(0,0,0,.7); color: #fff; font: 9px var(--font-mono); text-transform: uppercase; }
+.swing-replay__camera video { display: block; width: 100%; max-height: 30vh; aspect-ratio: 16 / 9; object-fit: contain; }
+
+.swing-replay__timeline { margin-top: 16px; }
+.swing-replay__error { margin-top: 12px; color: var(--color-danger); font-size: 12px; }
+.swing-replay__timeline input { flex: 1; accent-color: var(--color-turf-bright); }
+.swing-replay__timeline span { min-width: 104px; color: #fff; font: 10px var(--font-mono); text-align: right; }
+
+.swing-replay__controls { flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.08); }
+.swing-replay__transport { display: flex; gap: 6px; }
+.swing-replay__controls button, .swing-replay__controls select { border: 1px solid rgba(76,194,115,.45); border-radius: 5px; background: rgba(76,194,115,.12); color: #fff; padding: 7px 10px; cursor: pointer; }
+.swing-replay__controls label { display: flex; align-items: center; gap: 7px; color: var(--color-muted); font: 10px var(--font-mono); text-transform: uppercase; }
+.swing-replay__play { min-width: 68px; }
+.swing-replay__hint { color: var(--color-muted); font: 10px var(--font-mono); }
+.swing-replay__flight { margin-left: auto; }
+
+@media (max-width: 900px) {
+  .swing-replay__cameras { grid-template-columns: 1fr; }
+  .swing-replay__camera video { aspect-ratio: 16 / 8; }
+}

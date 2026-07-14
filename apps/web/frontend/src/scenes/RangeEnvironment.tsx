@@ -1,93 +1,259 @@
-import { Html } from "@react-three/drei";
+import { useLayoutEffect, useMemo, useRef } from "react";
+import { Html, useTexture } from "@react-three/drei";
+import * as THREE from "three";
 import { metersToYards } from "../lib/units";
-import type { SceneBounds } from "./sceneMath";
+import { rangeGroundHeight, type SceneBounds } from "./sceneMath";
 
 interface RangeEnvironmentProps {
   bounds: SceneBounds;
 }
 
-const YARD_TO_M = 0.9144;
+interface TreeSpec {
+  position: THREE.Vector3;
+  scale: number;
+  rotation: number;
+  species: number;
+}
 
-// Staggered target setups
-const TARGETS = [
-  { yards: 50, z: -2.5, color: "#ef4444" },   // Red flag
-  { yards: 100, z: 3.5, color: "#3b82f6" },   // Blue flag
-  { yards: 150, z: -4.0, color: "#eab308" },  // Yellow flag
-  { yards: 200, z: 0.0, color: "#10b981" },   // Green flag
-  { yards: 250, z: 5.0, color: "#a855f7" },   // Purple flag
-  { yards: 300, z: -3.0, color: "#ec4899" },  // Pink flag
+interface TreeSpecies {
+  texture: string;
+  width: number;
+  height: number;
+}
+
+const YARD_TO_M = 0.9144;
+const TARGETS = [50, 100, 150, 200, 250, 300];
+const TREE_SPECIES: TreeSpecies[] = [
+  { texture: "/textures/deciduous-tree-v1.webp", width: 10.4, height: 15.6 },
+  { texture: "/textures/pine-tree-v1.webp", width: 9.6, height: 19.5 },
+  { texture: "/textures/birch-tree-v1.webp", width: 8.8, height: 17.8 },
 ];
 
-function LowPolyTree({ position }: { position: [number, number, number] }) {
-  // Use coordinate-based determinism for slight size/height variations
-  const seed = position[0] + position[2];
-  const heightScale = 0.85 + (Math.sin(seed * 100) * 0.15 + 0.15);
-  const widthScale = 0.9 + (Math.cos(seed * 50) * 0.1 + 0.1);
+function fairwayCenter(x: number): number {
+  return Math.sin(x * 0.016 - 0.7) * Math.min(7, x * 0.025);
+}
+
+function seeded(seed: number): () => number {
+  let value = seed >>> 0;
+  return () => {
+    value += 0x6d2b79f5;
+    let result = value;
+    result = Math.imul(result ^ (result >>> 15), result | 1);
+    result ^= result + Math.imul(result ^ (result >>> 7), result | 61);
+    return ((result ^ (result >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeGround(length: number, width: number, startX: number): THREE.BufferGeometry {
+  const segmentsX = 192;
+  const segmentsZ = 128;
+  const vertices: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  for (let zIndex = 0; zIndex <= segmentsZ; zIndex += 1) {
+    const v = zIndex / segmentsZ;
+    const z = (v - 0.5) * width;
+    for (let xIndex = 0; xIndex <= segmentsX; xIndex += 1) {
+      const u = xIndex / segmentsX;
+      const x = startX + u * length;
+      vertices.push(x, rangeGroundHeight(x, z), z);
+      uvs.push(u, v);
+    }
+  }
+
+  const stride = segmentsX + 1;
+  for (let zIndex = 0; zIndex < segmentsZ; zIndex += 1) {
+    for (let xIndex = 0; xIndex < segmentsX; xIndex += 1) {
+      const a = zIndex * stride + xIndex;
+      const b = a + 1;
+      const c = a + stride;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function makeFairway(length: number, baseWidth: number): THREE.BufferGeometry {
+  const rows = 150;
+  const vertices: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let row = 0; row <= rows; row += 1) {
+    const fraction = row / rows;
+    const x = -10 + fraction * (length + 10);
+    const center = fairwayCenter(Math.max(0, x));
+    const width = baseWidth * (0.82 + 0.15 * Math.sin(x * 0.024 + 0.9));
+    for (const side of [-1, 1]) {
+      const z = center + side * width * 0.5;
+      vertices.push(x, rangeGroundHeight(x, z) + 0.035, z);
+      uvs.push(fraction * 12, side < 0 ? 0 : 3.6);
+    }
+    if (row < rows) {
+      const start = row * 2;
+      indices.push(start, start + 2, start + 1, start + 1, start + 2, start + 3);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function TreeBillboards({ trees, species }: { trees: TreeSpec[]; species: TreeSpecies }) {
+  const billboards = useRef<THREE.InstancedMesh>(null);
+  const treeTextureSource = useTexture(species.texture);
+  const treeTexture = useMemo(() => {
+    const texture = treeTextureSource.clone();
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
+    texture.needsUpdate = true;
+    return texture;
+  }, [treeTextureSource]);
+
+  useLayoutEffect(() => {
+    if (!billboards.current) return;
+    const matrix = new THREE.Matrix4();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    trees.forEach((tree, index) => {
+      const renderedHeight = species.height * tree.scale * 1.1;
+      scale.set(species.width * tree.scale, renderedHeight, 1);
+      for (let plane = 0; plane < 2; plane += 1) {
+        quaternion.setFromEuler(new THREE.Euler(0, tree.rotation + plane * Math.PI * 0.5, 0));
+        matrix.compose(
+          tree.position.clone().add(new THREE.Vector3(0, renderedHeight * 0.5, 0)),
+          quaternion,
+          scale,
+        );
+        billboards.current!.setMatrixAt(index * 2 + plane, matrix);
+      }
+    });
+    billboards.current.instanceMatrix.needsUpdate = true;
+  }, [species.height, species.width, trees]);
 
   return (
-    <group position={position} scale={[widthScale, heightScale, widthScale]}>
-      {/* Trunk */}
-      <mesh position={[0, 1.0, 0]} castShadow>
-        <cylinderGeometry args={[0.15, 0.25, 2.0, 8]} />
-        <meshStandardMaterial color="#5c4033" roughness={0.95} />
-      </mesh>
-      {/* Bottom foliage layer */}
-      <mesh position={[0, 2.7, 0]} castShadow receiveShadow>
-        <coneGeometry args={[1.1, 2.4, 8]} />
-        <meshStandardMaterial color="#2d5e2e" roughness={0.8} />
-      </mesh>
-      {/* Top foliage layer */}
-      <mesh position={[0, 3.8, 0]} castShadow>
-        <coneGeometry args={[0.8, 1.8, 8]} />
-        <meshStandardMaterial color="#367338" roughness={0.8} />
-      </mesh>
+    <instancedMesh ref={billboards} args={[undefined, undefined, trees.length * 2]} castShadow receiveShadow>
+      <planeGeometry args={[1, 1]} />
+      <meshBasicMaterial
+        map={treeTexture}
+        alphaTest={0.3}
+        depthWrite
+        side={THREE.DoubleSide}
+        toneMapped={false}
+      />
+    </instancedMesh>
+  );
+}
+
+function CourseForest({ length, width }: { length: number; width: number }) {
+  const trees = useMemo(() => {
+    const random = seeded(481516);
+    const specs: TreeSpec[] = [];
+    const pushTree = (x: number, z: number, scaleBias = 1, baseYOffset = 0) => {
+      const scale = (0.84 + random() * 0.34) * scaleBias;
+      const speciesRoll = random();
+      const species = speciesRoll < 0.5 ? 0 : speciesRoll < 0.78 ? 1 : 2;
+      specs.push({
+        position: new THREE.Vector3(x, rangeGroundHeight(x, z) + baseYOffset, z),
+        scale,
+        rotation: random() * Math.PI * 2,
+        species,
+      });
+    };
+
+    // Four overlapping canopy rows, emergent tall trees, and a sunk understory
+    // produce the uneven but visually continuous woodland edge of a real range.
+    for (let x = -88; x < length + 36; x += 3.6) {
+      for (const side of [-1, 1]) {
+        const edge = width * 0.35;
+        const heightWave = 1 + Math.sin(x * 0.067 + side * 0.8) * 0.16 + Math.sin(x * 0.19) * 0.08;
+        for (let depth = 0; depth < 4; depth += 1) {
+          const z = side * (edge + depth * 5.4 + random() * 2.8);
+          const rowHeight = [0.82, 0.98, 1.12, 1.02][depth];
+          pushTree(
+            x + (random() - 0.5) * 3.2,
+            z,
+            rowHeight * heightWave,
+          );
+        }
+        pushTree(
+          x + (random() - 0.5) * 2.8,
+          side * (edge - 2 + random() * 2.5),
+          0.58 + random() * 0.12,
+          -3,
+        );
+        if (random() < 0.2) {
+          pushTree(x + (random() - 0.5) * 2.5, side * (edge + 16 + random() * 7), 1.38 + random() * 0.24);
+        }
+      }
+    }
+
+    for (let z = -width * 0.58; z <= width * 0.58; z += 3.6) {
+      const heightWave = 1 + Math.sin(z * 0.09) * 0.17 + Math.sin(z * 0.21 + 1.2) * 0.07;
+      for (let depth = 0; depth < 4; depth += 1) {
+        const rowHeight = [0.84, 0.98, 1.14, 1.03][depth];
+        pushTree(
+          length + 7 + depth * 5.4 + random() * 2.5,
+          z + (random() - 0.5) * 3.2,
+          rowHeight * heightWave,
+        );
+      }
+      pushTree(length + 4 + random() * 2, z, 0.58 + random() * 0.12, -3);
+      if (random() < 0.22) pushTree(length + 24 + random() * 5, z, 1.4 + random() * 0.22);
+    }
+
+    for (let z = -width * 0.56; z <= width * 0.56; z += 3.6) {
+      const heightWave = 1 + Math.sin(z * 0.083 - 0.6) * 0.15;
+      for (let depth = 0; depth < 3; depth += 1) {
+        pushTree(-66 - depth * 5.5 - random() * 2.5, z + (random() - 0.5) * 3.2, (0.88 + depth * 0.1) * heightWave);
+      }
+      pushTree(-63, z, 0.58 + random() * 0.1, -3);
+    }
+    return specs;
+  }, [length, width]);
+  const groupedTrees = useMemo(
+    () => TREE_SPECIES.map((_, species) => trees.filter((tree) => tree.species === species)),
+    [trees],
+  );
+
+  return (
+    <group>
+      {TREE_SPECIES.map((species, index) => (
+        <TreeBillboards key={species.texture} trees={groupedTrees[index]} species={species} />
+      ))}
     </group>
   );
 }
 
-interface TargetGreenProps {
-  yards: number;
-  x: number;
-  z: number;
-  color: string;
-}
-
-function TargetGreen({ yards, x, z, color }: TargetGreenProps) {
+function TargetFlag({ yards, x, z }: { yards: number; x: number; z: number }) {
+  const y = rangeGroundHeight(x, z);
+  const color = yards % 100 === 0 ? "#f4f0dc" : "#c83e35";
   return (
-    <group position={[x, 0.005, z]}>
-      {/* Circular green turf */}
+    <group position={[x, y + 0.06, z]}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <circleGeometry args={[5.0, 32]} />
-        <meshStandardMaterial color="#295b2c" roughness={0.7} />
+        <circleGeometry args={[5.8, 64]} />
+        <meshStandardMaterial color="#4c8b43" roughness={0.92} />
       </mesh>
-
-      {/* Target white ring */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.002, 0]}>
-        <ringGeometry args={[4.7, 5.0, 32]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.65} />
+      <mesh position={[0, 1.65, 0]} castShadow>
+        <cylinderGeometry args={[0.025, 0.035, 3.3, 10]} />
+        <meshStandardMaterial color="#e6e2d5" roughness={0.35} metalness={0.25} />
       </mesh>
-
-      {/* Bullseye inner ring */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.002, 0]}>
-        <ringGeometry args={[1.8, 2.1, 32]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.45} />
+      <mesh position={[0.42, 2.9, 0]} castShadow>
+        <planeGeometry args={[0.84, 0.45, 4, 2]} />
+        <meshStandardMaterial color={color} side={THREE.DoubleSide} roughness={0.65} />
       </mesh>
-
-      {/* Flagpole */}
-      <mesh position={[0, 1.6, 0]} castShadow>
-        <cylinderGeometry args={[0.04, 0.04, 3.2, 8]} />
-        <meshStandardMaterial color="#d1d5db" metalness={0.7} roughness={0.2} />
-      </mesh>
-
-      {/* Flag banner */}
-      <mesh position={[0.38, 2.8, 0]} castShadow>
-        <boxGeometry args={[0.76, 0.45, 0.015]} />
-        <meshStandardMaterial color={color} roughness={0.4} />
-      </mesh>
-
-      {/* Floating yardage badge */}
-      <Html position={[0, 3.8, 0]} center distanceFactor={22}>
-        <div className="target-badge" style={{ borderLeft: `5px solid ${color}` }}>
+      <Html position={[0, 3.75, 0]} center distanceFactor={30}>
+        <div className="target-badge" style={{ borderLeft: `4px solid ${color}` }}>
           {yards} <span className="target-badge__unit">yd</span>
         </div>
       </Html>
@@ -96,162 +262,83 @@ function TargetGreen({ yards, x, z, color }: TargetGreenProps) {
 }
 
 export function RangeEnvironment({ bounds }: RangeEnvironmentProps) {
-  const lengthM = Math.max(bounds.maxDownrangeM * 1.25, 30);
-  const widthM = Math.max(bounds.maxLateralAbsM * 3, 24);
+  const length = Math.max(330, bounds.maxDownrangeM * 1.32 + 35);
+  const width = Math.max(145, bounds.maxLateralAbsM * 6 + 95);
+  const terrainStart = -700;
+  const terrainLength = length + 1400;
+  const terrainWidth = Math.max(1400, width + 1200);
+  const fairwayWidth = Math.max(24, Math.min(43, width * 0.26));
+  const grassSource = useTexture("/textures/fairway-grass-v1.webp");
+  const materials = useMemo(() => {
+    const prepare = (repeatX: number, repeatY: number) => {
+      const texture = grassSource.clone();
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(repeatX, repeatY);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 8;
+      texture.needsUpdate = true;
+      return texture;
+    };
+    return { rough: prepare(96, 82), fairway: prepare(12, 3.6), tee: prepare(2.4, 1.5) };
+  }, [grassSource]);
+  const ground = useMemo(
+    () => makeGround(terrainLength, terrainWidth, terrainStart),
+    [terrainLength, terrainStart, terrainWidth],
+  );
+  const fairway = useMemo(() => makeFairway(length, fairwayWidth), [length, fairwayWidth]);
 
-  // Fairway width is 70% of the total scene bounds width
-  const fairwayWidth = widthM * 0.7;
-  const roughWidth = (widthM - fairwayWidth) / 2;
-
-  // Render distance labels every 25 yards up to maximum downrange distance
-  const maxYards = Math.ceil(metersToYards(lengthM) / 25) * 25;
-  const ringYards: number[] = [];
-  for (let y = 25; y <= maxYards; y += 25) ringYards.push(y);
-
-  // Distribute trees along the rough boundaries, spaced out every 22 meters
-  const treeSpacing = 22;
-  const numTrees = Math.ceil(lengthM / treeSpacing);
-  const treePositions: [number, number, number][] = [];
-
-  for (let i = 0; i < numTrees; i++) {
-    const x = i * treeSpacing + 10;
-    if (x > lengthM) break;
-    // Left boundary
-    treePositions.push([x, 0, -widthM / 2 + roughWidth / 2]);
-    // Right boundary
-    treePositions.push([x, 0, widthM / 2 - roughWidth / 2]);
-  }
+  const maxYards = Math.floor(metersToYards(length - 10) / 50) * 50;
+  const distanceYards = Array.from({ length: Math.floor(maxYards / 50) }, (_, index) => (index + 1) * 50);
 
   return (
     <group>
-      {/* 1. Fairway Lawn Stripes */}
-      {Array.from({ length: 40 }).map((_, i) => {
-        const stripWidth = (lengthM + 20) / 40;
-        const x = i * stripWidth - 10 + stripWidth / 2;
-        const isEven = i % 2 === 0;
+      <mesh
+        geometry={ground}
+        receiveShadow
+        frustumCulled={false}
+      >
+        <meshStandardMaterial
+          map={materials.rough}
+          bumpMap={materials.rough}
+          bumpScale={0.075}
+          color="#aec29b"
+          roughness={0.98}
+          side={THREE.DoubleSide}
+          depthWrite
+        />
+      </mesh>
+      <mesh geometry={fairway} receiveShadow>
+        <meshStandardMaterial map={materials.fairway} bumpMap={materials.fairway} bumpScale={0.045} color="#d3e2c8" roughness={0.91} />
+      </mesh>
+
+      <mesh position={[-1.5, 0.045, 0]} receiveShadow>
+        <boxGeometry args={[9.5, 0.09, 9]} />
+        <meshStandardMaterial map={materials.tee} bumpMap={materials.tee} bumpScale={0.035} color="#dce8d3" roughness={0.9} />
+      </mesh>
+      <mesh position={[-1, 0.14, -2.7]} castShadow><sphereGeometry args={[0.12, 20, 14]} /><meshStandardMaterial color="#f3f0e6" /></mesh>
+      <mesh position={[-1, 0.14, 2.7]} castShadow><sphereGeometry args={[0.12, 20, 14]} /><meshStandardMaterial color="#f3f0e6" /></mesh>
+
+      {TARGETS.map((yards, index) => {
+        const x = yards * YARD_TO_M;
+        if (x > length - 10) return null;
+        return <TargetFlag key={yards} yards={yards} x={x} z={fairwayCenter(x) + (index % 2 ? 4 : -3)} />;
+      })}
+
+      {distanceYards.map((yards) => {
+        const x = yards * YARD_TO_M;
         return (
-          <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[x, 0.001, 0]} receiveShadow>
-            <planeGeometry args={[stripWidth, fairwayWidth]} />
-            <meshStandardMaterial
-              color={isEven ? "#387a32" : "#3b8035"}
-              roughness={0.85}
-              metalness={0.05}
-            />
-          </mesh>
+          <Html
+            key={yards}
+            position={[x, rangeGroundHeight(x, -fairwayWidth * 0.62) + 0.18, -fairwayWidth * 0.62]}
+            center
+            distanceFactor={38}
+          >
+            <div className="range-label">{yards} yd</div>
+          </Html>
         );
       })}
 
-      {/* 2. Left Rough Boundary */}
-      <mesh
-        rotation={[-Math.PI / 2, 0, 0]}
-        position={[lengthM / 2 - 5, 0, -widthM / 2 + roughWidth / 2]}
-        receiveShadow
-      >
-        <planeGeometry args={[lengthM + 10, roughWidth]} />
-        <meshStandardMaterial color="#204d25" roughness={0.95} />
-      </mesh>
-
-      {/* 3. Right Rough Boundary */}
-      <mesh
-        rotation={[-Math.PI / 2, 0, 0]}
-        position={[lengthM / 2 - 5, 0, widthM / 2 - roughWidth / 2]}
-        receiveShadow
-      >
-        <planeGeometry args={[lengthM + 10, roughWidth]} />
-        <meshStandardMaterial color="#204d25" roughness={0.95} />
-      </mesh>
-
-      {/* 4. Trees */}
-      {treePositions.map((pos, idx) => (
-        <LowPolyTree key={idx} position={pos} />
-      ))}
-
-      {/* 5. Target Greens with Flags */}
-      {TARGETS.map((target) => {
-        const x = target.yards * YARD_TO_M;
-        // Only render if target is within our bounds length
-        if (x < lengthM) {
-          return (
-            <TargetGreen
-              key={target.yards}
-              yards={target.yards}
-              x={x}
-              z={target.z}
-              color={target.color}
-            />
-          );
-        }
-        return null;
-      })}
-
-      {/* Distance rings every 25 yards along the fairway */}
-      {ringYards.map((yd) => {
-        const x = yd * YARD_TO_M;
-        // Don't render distance labels if target greens overlap
-        return (
-          <group key={yd}>
-            <mesh position={[x, 0.004, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-              <planeGeometry args={[0.08, fairwayWidth]} />
-              <meshBasicMaterial color="#ffffff" transparent opacity={0.15} />
-            </mesh>
-            <Html position={[x, 0, fairwayWidth / 2 + 0.8]} center distanceFactor={35}>
-              <div className="range-label">{yd} yd</div>
-            </Html>
-          </group>
-        );
-      })}
-
-      {/* Target line down the middle (+X, z=0) */}
-      <mesh position={[lengthM / 2 - 5, 0.003, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[lengthM + 10, 0.06]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.08} />
-      </mesh>
-
-      {/* Premium Tee Box */}
-      <group position={[-0.5, 0.01, 0]}>
-        {/* Wood platform */}
-        <mesh position={[0, 0, 0]} receiveShadow castShadow>
-          <boxGeometry args={[1.5, 0.06, 2.0]} />
-          <meshStandardMaterial color="#402a1b" roughness={0.8} />
-        </mesh>
-        {/* Ball tray */}
-        <mesh position={[0.5, 0.05, 0.8]} castShadow>
-          <boxGeometry args={[0.3, 0.06, 0.5]} />
-          <meshStandardMaterial color="#1f2937" roughness={0.5} />
-        </mesh>
-        {/* Synthetic turf strip inside platform */}
-        <mesh position={[0, 0.035, 0]} receiveShadow>
-          <boxGeometry args={[1.2, 0.01, 1.4]} />
-          <meshStandardMaterial color="#1b4d1b" roughness={0.9} />
-        </mesh>
-      </group>
-
-      {/* Tee Marker Spheres */}
-      <mesh position={[0, 0.12, 1.2]} castShadow>
-        <sphereGeometry args={[0.1, 16, 16]} />
-        <meshStandardMaterial color="#3b82f6" metalness={0.1} roughness={0.3} />
-      </mesh>
-      <mesh position={[0, 0.12, -1.2]} castShadow>
-        <sphereGeometry args={[0.1, 16, 16]} />
-        <meshStandardMaterial color="#3b82f6" metalness={0.1} roughness={0.3} />
-      </mesh>
-
-      {/* Optimized natural lighting */}
-      <ambientLight intensity={0.6} />
-      <directionalLight
-        position={[50, 75, 25]}
-        intensity={1.3}
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-camera-far={600}
-        shadow-camera-left={-60}
-        shadow-camera-right={60}
-        shadow-camera-top={60}
-        shadow-camera-bottom={-60}
-        shadow-bias={-0.0001}
-      />
-      <hemisphereLight args={["#cde3f2", "#2e5b2c", 0.45]} />
+      <CourseForest length={length} width={width} />
     </group>
   );
 }

@@ -279,6 +279,29 @@ export function CalibratePage() {
 
   const canSubmit = fileA !== null && fileB !== null && !busy;
 
+  async function recoverCompletedCalibration(): Promise<CalibrationResult> {
+    // A calibration can outlive an HTTP connection (some local proxies and
+    // browsers drop requests at roughly one minute). The backend persists the
+    // validated result before replying, so recover it from status rather than
+    // falsely claiming that calibration failed.
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const status = await api.getCalibrationStatus();
+      setProgressPercent(Math.min(100, Math.max(1, status.progress)));
+      setProgressMessage(status.message);
+      if (status.stage === "complete") {
+        return api.getActiveCalibration();
+      }
+      if (status.stage === "failed") {
+        throw new ApiError(400, status.message || "Calibration failed.");
+      }
+      if (!status.running && status.stage !== "complete") {
+        throw new ApiError(0, "The calibration request ended before producing a result.");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw new ApiError(0, "Calibration is still running, but recovery timed out after two minutes.");
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!fileA || !fileB) return;
@@ -306,7 +329,19 @@ export function CalibratePage() {
       setProgressMessage("Calibration complete.");
       setResult(res);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong during calibration.");
+      if (err instanceof ApiError && err.status === 0) {
+        try {
+          const recovered = await recoverCompletedCalibration();
+          setProgressPercent(100);
+          setProgressMessage("Calibration complete.");
+          setResult(recovered);
+          return;
+        } catch (recoveryError) {
+          setError(recoveryError instanceof ApiError ? recoveryError.message : err.message);
+        }
+      } else {
+        setError(err instanceof ApiError ? err.message : "Something went wrong during calibration.");
+      }
     } finally {
       setBusy(false);
     }

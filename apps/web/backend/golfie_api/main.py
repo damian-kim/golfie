@@ -36,15 +36,13 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Local-first dev setup: Vite's default port plus a couple of common
-# alternates. Tighten this before any real deployment.
+# Local-first development: Vite selects the next available port when another
+# local app already owns 5173. Permit loopback origins on any port so that
+# harmless port selection does not turn a successful request into a browser
+# CORS/network error. This still excludes non-local origins.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-    ],
+    allow_origin_regex=r"^https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

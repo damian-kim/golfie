@@ -218,7 +218,7 @@ def get_calibration_logs() -> list[str]:
 
 
 @router.post("/upload", response_model=CalibrationResult)
-async def upload_and_calibrate(
+def upload_and_calibrate(
     file_a: UploadFile = File(...),
     file_b: UploadFile = File(...),
     board_type: str = Form(default="charuco"),
@@ -228,6 +228,9 @@ async def upload_and_calibrate(
     marker_size: float = Form(default=0.03),
     measured_baseline: float | None = Form(default=None),
 ) -> CalibrationResult:
+    # This endpoint performs long, blocking OpenCV/FFmpeg work. Defining it as
+    # a synchronous route lets FastAPI run it in its worker thread pool so the
+    # event loop can continue serving progress, health, and recovery requests.
     log_calibration_progress("Starting calibration process...", 1, "starting")
     log_calibration_progress(
         f"Board geometry: type={board_type}, grid={grid_cols}x{grid_rows}, "

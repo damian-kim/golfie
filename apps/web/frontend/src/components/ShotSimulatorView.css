@@ -242,20 +242,20 @@
 /* Radar widget styling */
 .hud-radar-widget {
   position: absolute;
-  bottom: 25px;
+  bottom: 86px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 3;
   background: var(--hud-bg);
   backdrop-filter: blur(12px);
   border: 1px solid var(--hud-border);
-  border-radius: var(--radius-md);
-  padding: 12px;
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
   box-shadow: var(--hud-box-shadow);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   pointer-events: auto;
   transition: all 0.2s ease;
 }
@@ -267,7 +267,7 @@
 
 .hud-radar-header {
   font-family: var(--font-display);
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
   color: var(--color-muted);
   letter-spacing: 0.12em;
@@ -275,14 +275,14 @@
 }
 
 .hud-radar-svg {
-  width: 110px;
-  height: 110px;
+  width: 76px;
+  height: 76px;
 }
 
 .hud-radar-footer {
   display: flex;
-  gap: 12px;
-  font-size: 10px;
+  gap: 8px;
+  font-size: 9px;
   color: var(--color-ink);
   font-weight: 700;
 }
@@ -455,4 +455,3 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
-
