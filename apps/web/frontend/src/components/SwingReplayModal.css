@@ -33,6 +33,25 @@
 .swing-replay__header p { margin: 4px 0 0; color: var(--color-muted); font: 11px var(--font-mono); }
 .swing-replay__header button { background: transparent; border: 0; color: #fff; font-size: 20px; cursor: pointer; }
 
+.swing-replay__legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px 14px;
+  margin: -3px 0 12px;
+  color: rgba(255, 255, 255, 0.78);
+  font: 9px var(--font-mono);
+  text-transform: uppercase;
+}
+.swing-replay__legend span { display: inline-flex; align-items: center; gap: 5px; }
+.swing-replay__legend small { color: var(--color-muted); font-size: 8px; text-transform: none; }
+.swing-replay__key { width: 17px; height: 3px; border-radius: 2px; box-shadow: 0 0 5px currentColor; }
+.swing-replay__key--left { color: rgb(255, 75, 255); background: currentColor; }
+.swing-replay__key--right { color: rgb(255, 165, 0); background: currentColor; }
+.swing-replay__key--shoulders { color: rgb(0, 255, 255); background: currentColor; }
+.swing-replay__key--hips { color: rgb(120, 255, 80); background: currentColor; }
+.swing-replay__key--balance { color: rgb(245, 245, 245); background: currentColor; }
+
 .swing-replay__cameras { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .swing-replay__camera { display: flex; flex-direction: column; gap: 8px; }
 .swing-replay__camera h3 { margin: 0; color: var(--color-turf-bright); font: 700 11px var(--font-mono); text-transform: uppercase; }

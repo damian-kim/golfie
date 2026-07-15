@@ -141,6 +141,7 @@ export function DrivingRangeScene({
   });
   const [localPlayToken, setLocalPlayToken] = useState(0);
   const [cameraMode, setCameraMode] = useState<"chase" | "orbit">("orbit");
+  const [rendererRevision, setRendererRevision] = useState(0);
   const playToken = externalPlayToken !== undefined ? externalPlayToken : localPlayToken;
   const previousPlayToken = useRef(playToken);
   const hasAutoFollowed = useRef(false);
@@ -152,6 +153,18 @@ export function DrivingRangeScene({
     }),
     [fitted, measured, simulated],
   );
+
+  // Three.js resources held by a Fast Refresh boundary can outlive the GPU
+  // buffers that react-three-fiber disposed during the update. Recreate the
+  // entire Canvas after any development edit so stale geometry can never be
+  // reused. Production builds do not register this listener.
+  useEffect(() => {
+    const hot = import.meta.hot;
+    if (!hot) return;
+    const resetRenderer = () => setRendererRevision((revision) => revision + 1);
+    hot.on("vite:afterUpdate", resetRenderer);
+    return () => hot.off("vite:afterUpdate", resetRenderer);
+  }, []);
 
   useEffect(() => {
     if (previousPlayToken.current === playToken) return;
@@ -182,25 +195,28 @@ export function DrivingRangeScene({
       <div className="driving-range__toolbar">
         <div className="driving-range__layers">
           <LayerToggle
-            label="Simulated flight"
+            label="Predicted flight + rollout"
             active={visibleLayers.simulated}
             onClick={() => toggle("simulated")}
             count={simulated.length}
             colorVar="--color-turf-bright"
+            description="Physics prediction from launch through first landing, two estimated bounces, and rollout."
           />
           <LayerToggle
-            label="Measured points"
+            label="Stereo observations"
             active={visibleLayers.measured}
             onClick={() => toggle("measured")}
             count={measured.length}
             colorVar="--color-amber"
+            description="Raw 3D ball positions reconstructed from frames where both cameras observed the ball."
           />
           <LayerToggle
-            label="Fitted curve"
+            label="Physics launch fit"
             active={visibleLayers.fitted}
             onClick={() => toggle("fitted")}
             count={fitted.length}
             colorVar="--color-violet"
+            description="The smooth physics model evaluated at the observation times before it is extrapolated downrange."
           />
         </div>
         <button className="driving-range__replay" onClick={replayShot}>
@@ -213,6 +229,7 @@ export function DrivingRangeScene({
 
       <div className="driving-range__canvas-wrap">
         <Canvas
+          key={rendererRevision}
           shadows={{ type: THREE.PCFSoftShadowMap }}
           dpr={[1, 1.7]}
           camera={{ position: cameraPosition, fov: 46, near: 0.08, far: 2200 }}
@@ -274,12 +291,14 @@ function LayerToggle({
   onClick,
   count,
   colorVar,
+  description,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
   count: number;
   colorVar: string;
+  description?: string;
 }) {
   const disabled = count === 0;
   return (
@@ -288,7 +307,7 @@ function LayerToggle({
       onClick={onClick}
       disabled={disabled}
       style={{ "--toggle-color": `var(${colorVar})` } as React.CSSProperties}
-      title={disabled ? "No data for this layer" : undefined}
+      title={disabled ? `No data for this layer. ${description || ""}`.trim() : description}
     >
       <span className="layer-toggle__dot" />
       {label}

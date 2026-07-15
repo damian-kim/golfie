@@ -12,6 +12,8 @@
   box-shadow: var(--hud-box-shadow);
   position: relative;
   overflow: hidden;
+  flex: 0 0 auto;
+  min-height: 108px;
 }
 
 .metric-card:hover {

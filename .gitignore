@@ -27,5 +27,6 @@ data/runtime/
 .env
 .env.local
 
-# Ultralytics downloads this runtime model on first outline render.
+# Ultralytics downloads these runtime models on first outline render.
 yolov8n-seg.pt
+yolov8n-pose.pt

@@ -91,17 +91,26 @@ export function SwingReplayModal({ sessionId, onClose, onPlayBallFlight, onVideo
         <header className="swing-replay__header">
           <div>
             <h2>Swing comparison</h2>
-            <p>YOLO outline above · original uploaded frames below</p>
+            <p>Body contour and pose guides above · original uploaded frames below</p>
           </div>
           <button onClick={onClose} aria-label="Close swing replay">✕</button>
         </header>
+
+        <div className="swing-replay__legend" aria-label="Pose overlay legend">
+          <span><i className="swing-replay__key swing-replay__key--left" />Anatomical left arm</span>
+          <span><i className="swing-replay__key swing-replay__key--right" />Anatomical right arm</span>
+          <span><i className="swing-replay__key swing-replay__key--shoulders" />Shoulder axis</span>
+          <span><i className="swing-replay__key swing-replay__key--hips" />Hip axis</span>
+          <span><i className="swing-replay__key swing-replay__key--balance" />2D posture center</span>
+          <small>Left/right may appear mirrored by the source video. Posture center is not a pressure measurement.</small>
+        </div>
 
         <div className="swing-replay__cameras">
           {(["camera_a", "camera_b"] as const).map((camera, cameraIndex) => (
             <section className="swing-replay__camera" key={camera}>
               <h3>{camera === "camera_a" ? "Camera A · Down the line" : "Camera B · Face on"}</h3>
               <figure>
-                <figcaption>Detected outline</figcaption>
+                <figcaption>Body + pose analysis</figcaption>
                 <video
                   ref={registerVideo}
                   src={videoUrl(camera, "stripped")}

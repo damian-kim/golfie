@@ -14,14 +14,17 @@ def render_stripped_outlines_video(
     background_model: np.ndarray | None = None,
     ball_track_2d: list | None = None,
     model=None,
+    pose_model=None,
     inference_stride: int = 2,
     inference_size: int = 384,
     comparison_output_path: Path | None = None,
+    person_only: bool = True,
 ) -> None:
     """Run YOLOv8 segmentation on the relevant frame range of the video.
     
-    Draws glowing neon-colored outlines of the person (cyan), golf club (amber), and ball (green)
-    on a black background. Detects the club using a deterministic Canny + Hough Line solver.
+    Draws glowing neon-colored outlines of the person (cyan) and tracked ball (green)
+    on a black background. The default person-only path deliberately skips the expensive,
+    unreliable Canny/Hough club solver; it remains available for diagnostic renders.
     Transcodes the final output to H.264 MP4 and logs the frame-timestamp mapping JSON.
     """
     video_path = Path(video_path)
@@ -71,6 +74,77 @@ def render_stripped_outlines_video(
         cv2.circle(img, center, int(radius) + 4, glow_color, thickness=-1, lineType=cv2.LINE_AA)
         cv2.circle(img, center, max(2, int(radius)), color, thickness=-1, lineType=cv2.LINE_AA)
 
+    def draw_glowing_line(img, start, end, color, thickness=3):
+        glow_color = [max(0, int(c * 0.3)) for c in color]
+        cv2.line(img, start, end, glow_color, thickness=thickness + 5, lineType=cv2.LINE_AA)
+        cv2.line(img, start, end, color, thickness=thickness, lineType=cv2.LINE_AA)
+
+    def draw_pose_overlay(img, pose_results) -> None:
+        """Draw COCO pose joints as swing-analysis guides."""
+        if not pose_results or pose_results[0].keypoints is None:
+            return
+        keypoints = pose_results[0].keypoints
+        if keypoints.xy is None or len(keypoints.xy) == 0:
+            return
+        xy = keypoints.xy[0].detach().cpu().numpy()
+        confidence = (
+            keypoints.conf[0].detach().cpu().numpy()
+            if keypoints.conf is not None
+            else np.ones(len(xy), dtype=float)
+        )
+
+        def point(index: int):
+            if index >= len(xy) or confidence[index] < 0.28:
+                return None
+            x, y = xy[index]
+            if not np.isfinite(x) or not np.isfinite(y):
+                return None
+            return int(round(x)), int(round(y))
+
+        def segment(a: int, b: int, color, thickness=3):
+            start, end = point(a), point(b)
+            if start is not None and end is not None:
+                draw_glowing_line(img, start, end, color, thickness)
+
+        # Left/right refer to the detected person's anatomy. A mirrored phone
+        # export will therefore make them appear reversed on screen.
+        left_arm = (255, 75, 255)       # magenta
+        right_arm = (0, 165, 255)       # amber
+        shoulder_axis = (255, 255, 0)   # cyan
+        hip_axis = (80, 255, 120)       # green
+        legs = (210, 150, 75)           # blue
+        balance = (245, 245, 245)       # white
+
+        segment(5, 7, left_arm, 4)
+        segment(7, 9, left_arm, 4)
+        segment(6, 8, right_arm, 4)
+        segment(8, 10, right_arm, 4)
+        segment(5, 6, shoulder_axis, 3)
+        segment(5, 11, shoulder_axis, 2)
+        segment(6, 12, shoulder_axis, 2)
+        segment(11, 12, hip_axis, 3)
+        segment(11, 13, legs, 3)
+        segment(13, 15, legs, 3)
+        segment(12, 14, legs, 3)
+        segment(14, 16, legs, 3)
+
+        shoulders = (point(5), point(6))
+        hips = (point(11), point(12))
+        ankles = (point(15), point(16))
+        if all(p is not None for p in shoulders + hips):
+            mid_shoulder = tuple(np.rint(np.mean(np.asarray(shoulders), axis=0)).astype(int))
+            mid_hip = tuple(np.rint(np.mean(np.asarray(hips), axis=0)).astype(int))
+            draw_glowing_line(img, mid_shoulder, mid_hip, balance, 2)
+            draw_glowing_circle(img, mid_hip, 4, balance)
+            if all(p is not None for p in ankles):
+                stance_y = int(round((ankles[0][1] + ankles[1][1]) * 0.5))
+                cv2.line(img, mid_hip, (mid_hip[0], stance_y), balance, 1, cv2.LINE_AA)
+
+        for index in range(5, 17):
+            joint = point(index)
+            if joint is not None:
+                draw_glowing_circle(img, joint, 3, balance)
+
     frame_mappings = []
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -118,7 +192,25 @@ def render_stripped_outlines_video(
                 continue
 
             # Run YOLOv8 segmentation on the current frame
-            results = model(frame, verbose=False, imgsz=max(320, int(inference_size)))
+            results = model(
+                frame,
+                verbose=False,
+                imgsz=max(320, int(inference_size)),
+                classes=[0, 32],
+                max_det=3,
+            )
+            pose_results = None
+            if pose_model is not None:
+                try:
+                    pose_results = pose_model(
+                        frame,
+                        verbose=False,
+                        imgsz=max(320, int(inference_size)),
+                        classes=[0],
+                        max_det=1,
+                    )
+                except Exception as exc:
+                    print(f"Golfie outline warning: pose detection failed at frame {frame_idx}: {exc}")
             canvas = np.zeros_like(frame)
             person_polys = []
             
@@ -133,6 +225,28 @@ def render_stripped_outlines_video(
                     if cls == 0:
                         draw_glowing_poly(canvas, poly_int, (255, 255, 0), thickness=2)
                         person_polys.append(poly_int)
+
+            draw_pose_overlay(canvas, pose_results)
+
+            # The production replay is intentionally person-first. Shaft
+            # detection was both the least reliable overlay and a sizeable
+            # per-frame CPU cost. Draw any trusted ball point, write the mask,
+            # and skip the legacy edge/Hough pass entirely.
+            if person_only:
+                if frame_idx in ball_lookup:
+                    x, y, r = ball_lookup[frame_idx]
+                    draw_glowing_circle(canvas, (int(x), int(y)), int(r), (0, 255, 0))
+                elif results and results[0].masks is not None:
+                    for mask, box in zip(results[0].masks, results[0].boxes):
+                        if int(box.cls[0]) != 32:
+                            continue
+                        poly_coords = mask.xy[0]
+                        if len(poly_coords) > 0:
+                            draw_glowing_poly(canvas, np.array(poly_coords, dtype=np.int32), (0, 255, 0), thickness=2)
+                            break
+                out_writer.write(canvas)
+                previous_canvas = canvas.copy()
+                continue
 
             # Club shaft tracking. Golf clubs are not a COCO segmentation
             # class, so combine long thin edges with temporal motion and use

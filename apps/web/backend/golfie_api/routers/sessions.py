@@ -40,7 +40,7 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 _processing_locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
 _outline_jobs_lock = threading.Lock()
 _outline_jobs: dict[str, dict] = {}
-OUTLINE_RENDER_VERSION = 2
+OUTLINE_RENDER_VERSION = 4
 
 
 def _outline_artifacts_current(session_dir: Path) -> bool:
@@ -80,6 +80,13 @@ def _outline_worker(session_id: str) -> None:
         if session.camera_a is None or session.camera_b is None:
             raise RuntimeError("Both camera videos are required for outline rendering.")
         model = YOLO("yolov8n-seg.pt")
+        try:
+            pose_model = YOLO("yolov8n-pose.pt")
+        except Exception as exc:
+            # Body segmentation remains available if optional pose weights
+            # cannot be downloaded or loaded on this machine.
+            print(f"Golfie outline warning: pose model unavailable: {exc}")
+            pose_model = None
         session_dir = session_store.session_dir(session_id)
         cameras = (
             ("camera_a", Path(session.camera_a.video_path)),
@@ -96,8 +103,8 @@ def _outline_worker(session_id: str) -> None:
             metadata = read_video_metadata(video_path)
             # Use time-based bounds so 30/120/240 fps phone videos cover the
             # same swing interval and remain comparable in the replay UI.
-            start_frame = max(0, impact_frame - round(1.25 * metadata.fps))
-            end_frame = min(metadata.frame_count, impact_frame + round(1.75 * metadata.fps))
+            start_frame = max(0, impact_frame - round(1.1 * metadata.fps))
+            end_frame = min(metadata.frame_count, impact_frame + round(1.4 * metadata.fps))
             final_path = session_dir / f"{camera_name}_stripped.mp4"
             temporary_path = session_dir / f"{camera_name}_stripped.rendering.mp4"
             comparison_path = session_dir / f"{camera_name}_replay_original.mp4"
@@ -110,12 +117,14 @@ def _outline_worker(session_id: str) -> None:
                 end_frame=end_frame,
                 output_path=temporary_path,
                 model=model,
-                # Fifteen fresh masks per playback second is smooth for a
-                # slow-motion diagnostic replay and bounds CPU inference cost
+                pose_model=pose_model,
+                # Eight fresh masks per playback second is smooth enough for a
+                # slow-motion body-outline replay and bounds CPU inference cost
                 # independently of whether the phone stored 30, 120, or 240fps.
-                inference_stride=max(1, round(metadata.fps / 15.0)),
-                inference_size=384,
+                inference_stride=max(1, round(metadata.fps / 8.0)),
+                inference_size=320,
                 comparison_output_path=comparison_temporary,
+                person_only=True,
             )
             temporary_path.replace(final_path)
             comparison_temporary.replace(comparison_path)

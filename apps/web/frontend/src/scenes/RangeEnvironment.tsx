@@ -292,10 +292,24 @@ export function RangeEnvironment({ bounds }: RangeEnvironmentProps) {
 
   return (
     <group>
+      {/* Permanent underlay: even if a GPU/texture resource is lost during a
+          development refresh, the sky can never become the range floor. */}
       <mesh
+        name="range-ground-failsafe"
+        position={[0, -1.75, 0]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        receiveShadow
+        frustumCulled={false}
+      >
+        <planeGeometry args={[5000, 5000, 1, 1]} />
+        <meshBasicMaterial color="#355f2d" side={THREE.DoubleSide} depthWrite />
+      </mesh>
+      <mesh
+        name="range-detailed-ground"
         geometry={ground}
         receiveShadow
         frustumCulled={false}
+        dispose={null}
       >
         <meshStandardMaterial
           map={materials.rough}
@@ -307,7 +321,7 @@ export function RangeEnvironment({ bounds }: RangeEnvironmentProps) {
           depthWrite
         />
       </mesh>
-      <mesh geometry={fairway} receiveShadow>
+      <mesh name="range-fairway" geometry={fairway} receiveShadow dispose={null}>
         <meshStandardMaterial map={materials.fairway} bumpMap={materials.fairway} bumpScale={0.045} color="#d3e2c8" roughness={0.91} />
       </mesh>
 
