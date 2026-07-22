@@ -26,7 +26,6 @@ _calibration_status = {
     "message": "No calibration is running.",
 }
 
-
 def _paired_frame_indices(
     progress_time: float,
     start_time_a: float,
@@ -41,11 +40,36 @@ def _paired_frame_indices(
     return idx_a, idx_b
 
 
+def _slow_motion_frame_indices(
+    progress_time: float,
+    landmark_time_a: float,
+    landmark_time_b: float,
+    playback_fps_a: float,
+    playback_fps_b: float,
+    slow_motion_factor_a: float,
+    slow_motion_factor_b: float,
+) -> tuple[int, int]:
+    """Map common physical time to each retimed video's stored frame clock."""
+    landmark_a = landmark_time_a * playback_fps_a
+    landmark_b = landmark_time_b * playback_fps_b
+    effective_fps_a = playback_fps_a * slow_motion_factor_a
+    effective_fps_b = playback_fps_b * slow_motion_factor_b
+    return (
+        int(round(landmark_a + progress_time * effective_fps_a)),
+        int(round(landmark_b + progress_time * effective_fps_b)),
+    )
+
+
 def extract_synced_frames(
-    video_path_a: Path, video_path_b: Path, max_frames: int = 18
+    video_path_a: Path,
+    video_path_b: Path,
+    max_frames: int = 16,
+    slow_motion_factor_a: float = 1.0,
+    slow_motion_factor_b: float = 1.0,
 ) -> tuple[list[Path], list[Path]]:
     """Sync two videos and extract matching frames for calibration."""
-    from golfie_cv.sync import estimate_sync_offset
+    from golfie_cv.sync import estimate_sync_landmarks
+    from golfie_cv.video import analyze_video_timing
 
     cap_a = cv2.VideoCapture(str(video_path_a))
     cap_b = cv2.VideoCapture(str(video_path_b))
@@ -59,34 +83,53 @@ def extract_synced_frames(
     if fps_a <= 0: fps_a = 30.0
     if fps_b <= 0: fps_b = 30.0
 
-    duration_a = total_a / fps_a
-    duration_b = total_b / fps_b
+    if slow_motion_factor_a == 1.0 and slow_motion_factor_b == 1.0:
+        # Real-time constant-rate calibration clips do not need an expensive
+        # full ffprobe scan of every frame timestamp. Their stored frame clock
+        # already is physical time.
+        duration_a = total_a / fps_a
+        duration_b = total_b / fps_b
+        index_at_time_a = lambda seconds: max(0, int(round(seconds * fps_a)))
+        index_at_time_b = lambda seconds: max(0, int(round(seconds * fps_b)))
+        nominal_fps_a = fps_a
+        nominal_fps_b = fps_b
+    else:
+        timing_a = analyze_video_timing(video_path_a)
+        timing_b = analyze_video_timing(video_path_b)
+        duration_a = timing_a.playback_duration_seconds
+        duration_b = timing_b.playback_duration_seconds
+        index_at_time_a = timing_a.frame_index_at_time
+        index_at_time_b = timing_b.frame_index_at_time
+        nominal_fps_a = timing_a.nominal_fps
+        nominal_fps_b = timing_b.nominal_fps
 
-    # Determine sync offset in seconds
+    # Locate the same clap separately in each playback timeline. A constant
+    # offset is insufficient when the files have different slow-motion scales.
     try:
-        sync = estimate_sync_offset(video_path_a, video_path_b)
-        candidate_offset = sync.offset_seconds
-        
-        # Verify that the offset produces a valid overlapping window
-        s_a = max(0.0, candidate_offset)
-        s_b = max(0.0, -candidate_offset)
-        overlap = min(duration_a - s_a, duration_b - s_b)
-        
-        if sync.method.value == "manual":
-            raise ValueError(sync.notes or "Audio could not be extracted from one or both videos.")
-        if sync.confidence >= 0.3 and overlap > 1.0:
-            offset_sec = candidate_offset
-            log_calibration_progress(
-                f"Audio sync accepted: confidence={sync.confidence:.2f}, "
-                f"offset={offset_sec:.6f}s, Camera A={fps_a:.3f}fps, Camera B={fps_b:.3f}fps."
-            )
-        else:
+        landmark_time_a, landmark_time_b, confidence = estimate_sync_landmarks(
+            video_path_a, video_path_b
+        )
+        overlap = min(
+            (duration_a - landmark_time_a) / slow_motion_factor_a,
+            (duration_b - landmark_time_b) / slow_motion_factor_b,
+        )
+        if confidence < 0.3 or overlap <= 1.0:
             raise ValueError(
                 "Calibration audio was extracted, but synchronization was rejected: "
-                f"confidence={sync.confidence:.2f}, candidate_offset={candidate_offset:.3f}s, "
-                f"overlap={overlap:.2f}s. The clap must be the strongest isolated transient "
+                f"confidence={confidence:.2f}, physical overlap={overlap:.2f}s. "
+                "The clap must be the strongest isolated transient "
                 "in both recordings."
             )
+        log_calibration_progress(
+            f"Audio landmarks accepted: confidence={confidence:.2f}, "
+            f"Camera A clap={landmark_time_a:.3f}s, Camera B clap={landmark_time_b:.3f}s."
+        )
+        log_calibration_progress(
+            "Slow-motion timeline: "
+            f"Camera A={nominal_fps_a:.3f}fps x {slow_motion_factor_a:g}; "
+            f"Camera B={nominal_fps_b:.3f}fps x {slow_motion_factor_b:g}; "
+            f"overlap after clap={overlap:.3f}s."
+        )
     except ValueError:
         raise
     except Exception as exc:
@@ -94,17 +137,7 @@ def extract_synced_frames(
             f"Calibration audio synchronization failed: {exc}"
         ) from exc
 
-    # Overlap regions in seconds
-    start_time_a = max(0.0, offset_sec)
-    start_time_b = max(0.0, -offset_sec)
-
-    overlap_duration = min(duration_a - start_time_a, duration_b - start_time_b)
-    if overlap_duration <= 0:
-        start_time_a = 0.0
-        start_time_b = 0.0
-        overlap_duration = min(duration_a, duration_b)
-
-    time_step = overlap_duration / max_frames
+    time_step = overlap / max_frames
 
     # Subdirectories within temp directory
     tmp_dir_a = video_path_a.parent / "_tmp_cal_a"
@@ -114,13 +147,28 @@ def extract_synced_frames(
 
     paths_a = []
     paths_b = []
+    # Audio timestamps can trail the corresponding image by several stored
+    # frames even in real-time phone video. Always retain nearby Camera B
+    # candidates so stereo geometry can refine that offset.
+    refinement_shifts = tuple(range(-12, 13, 2))
+    refinement_dirs = {
+        shift: video_path_b.parent / f"_tmp_cal_b_shift_{shift:+d}"
+        for shift in refinement_shifts
+        if shift != 0
+    }
+    for directory in refinement_dirs.values():
+        directory.mkdir(exist_ok=True)
 
     saved = 0
     for i in range(max_frames):
-        t = i * time_step
-        # Camera A and B can have very different rates (e.g. 30 vs 120 fps).
-        # Pair B to A's snapped frame timestamp, not the unsnapped ideal time.
-        idx_a, idx_b = _paired_frame_indices(t, start_time_a, start_time_b, fps_a, fps_b)
+        # Use the midpoint of each interval to avoid the clap itself and the
+        # last potentially incomplete frame in the shared physical window.
+        t = (i + 0.5) * time_step
+        # Convert common physical time back to each file's playback PTS, then
+        # locate the nearest actual frame. This handles iPhone VFR/ramp edits;
+        # multiplying a timestamp by average FPS does not.
+        idx_a = index_at_time_a(landmark_time_a + t * slow_motion_factor_a)
+        idx_b = index_at_time_b(landmark_time_b + t * slow_motion_factor_b)
 
         if idx_a >= total_a or idx_b >= total_b:
             break
@@ -128,8 +176,21 @@ def extract_synced_frames(
         cap_a.set(cv2.CAP_PROP_POS_FRAMES, idx_a)
         ret_a, frame_a = cap_a.read()
 
-        cap_b.set(cv2.CAP_PROP_POS_FRAMES, idx_b)
-        ret_b, frame_b = cap_b.read()
+        # Decode the nearby Camera B candidates sequentially. Phone slow-motion
+        # exports can shift audio relative to video by several stored frames;
+        # these candidates let stereo geometry refine the audio landmark.
+        candidate_frames: dict[int, np.ndarray] = {}
+        first_shift = min(refinement_shifts)
+        last_shift = max(refinement_shifts)
+        cap_b.set(cv2.CAP_PROP_POS_FRAMES, max(0, idx_b + first_shift))
+        for shifted_index in range(first_shift, last_shift + 1):
+            ret_candidate, candidate = cap_b.read()
+            if not ret_candidate or candidate is None:
+                break
+            if shifted_index in refinement_shifts:
+                candidate_frames[shifted_index] = candidate
+        frame_b = candidate_frames.get(0)
+        ret_b = frame_b is not None
 
         if ret_a and ret_b and frame_a is not None and frame_b is not None:
             path_a = tmp_dir_a / f"frame_{saved:04d}.png"
@@ -138,6 +199,14 @@ def extract_synced_frames(
             cv2.imwrite(str(path_b), frame_b)
             paths_a.append(path_a)
             paths_b.append(path_b)
+            for shift, directory in refinement_dirs.items():
+                candidate = candidate_frames.get(shift)
+                if candidate is not None:
+                    cv2.imwrite(
+                        str(directory / f"frame_{saved:04d}.jpg"),
+                        candidate,
+                        [cv2.IMWRITE_JPEG_QUALITY, 97],
+                    )
             saved += 1
 
     cap_a.release()
@@ -227,6 +296,8 @@ def upload_and_calibrate(
     square_size: float = Form(default=0.04),
     marker_size: float = Form(default=0.03),
     measured_baseline: float | None = Form(default=None),
+    slow_motion_factor_a: float = Form(default=1.0),
+    slow_motion_factor_b: float = Form(default=1.0),
 ) -> CalibrationResult:
     # This endpoint performs long, blocking OpenCV/FFmpeg work. Defining it as
     # a synchronous route lets FastAPI run it in its worker thread pool so the
@@ -235,6 +306,15 @@ def upload_and_calibrate(
     log_calibration_progress(
         f"Board geometry: type={board_type}, grid={grid_cols}x{grid_rows}, "
         f"square={square_size * 1000.0:.2f}mm, marker={marker_size * 1000.0:.2f}mm."
+    )
+    if not 1.0 <= slow_motion_factor_a <= 32.0 or not 1.0 <= slow_motion_factor_b <= 32.0:
+        raise HTTPException(
+            status_code=400,
+            detail="Slow-motion playback factors must be between 1x and 32x.",
+        )
+    log_calibration_progress(
+        f"Playback slowdown: Camera A={slow_motion_factor_a:g}x, "
+        f"Camera B={slow_motion_factor_b:g}x."
     )
     if measured_baseline is not None:
         if not 0.1 <= measured_baseline <= 10.0:
@@ -263,7 +343,12 @@ def upload_and_calibrate(
             "Synchronizing videos and extracting calibration frames...", 9, "extracting"
         )
         try:
-            paths_a, paths_b = extract_synced_frames(path_a, path_b)
+            paths_a, paths_b = extract_synced_frames(
+                path_a,
+                path_b,
+                slow_motion_factor_a=slow_motion_factor_a,
+                slow_motion_factor_b=slow_motion_factor_b,
+            )
             log_calibration_progress(
                 f"Extracted {len(paths_a)} synchronized frame pairs.", 30, "frames_ready"
             )
@@ -327,15 +412,94 @@ def upload_and_calibrate(
             "Solving stereo camera pose and validating held-out geometry...", 60, "stereo"
         )
         try:
-            stereo_result = calibrate_stereo(
-                intrinsics_a,
-                intrinsics_b,
-                paths_a,
-                paths_b,
-                board_type=board_type,
-                grid_size=(grid_cols, grid_rows),
-                square_length=square_size,
-                marker_length=marker_size,
+            log_calibration_progress(
+                "Testing the audio alignment and nearby Camera B frames in parallel...",
+                68,
+                "refining_sync",
+            )
+            candidates = []
+
+            def solve_shift_candidate(shift: int):
+                if shift == 0:
+                    candidate_paths_b = paths_b
+                else:
+                    candidate_dir = path_b.parent / f"_tmp_cal_b_shift_{shift:+d}"
+                    candidate_paths_b = sorted(candidate_dir.glob("frame_*.jpg"))
+                if len(candidate_paths_b) != len(paths_a):
+                    return shift, None
+                return shift, calibrate_stereo(
+                    intrinsics_a,
+                    intrinsics_b,
+                    paths_a,
+                    candidate_paths_b,
+                    board_type=board_type,
+                    grid_size=(grid_cols, grid_rows),
+                    square_length=square_size,
+                    marker_length=marker_size,
+                )
+
+            # Audio is normally within four stored frames. Include the base
+            # alignment in this same concurrent batch instead of first paying
+            # for a separate serial stereo solve.
+            shift_batches = [(0, -4, -2, 2, 4), (-12, -10, -8, -6, 6, 8, 10, 12)]
+            for batch in shift_batches:
+                with ThreadPoolExecutor(max_workers=min(5, len(batch))) as executor:
+                    futures = {
+                        executor.submit(solve_shift_candidate, shift): shift
+                        for shift in batch
+                    }
+                    for future in as_completed(futures):
+                        shift = futures[future]
+                        try:
+                            _, candidate_result = future.result()
+                        except Exception as candidate_exc:
+                            log_calibration_progress(
+                                f"Visual sync candidate {shift:+d} frames rejected: "
+                                f"{candidate_exc}"
+                            )
+                            continue
+                        if candidate_result is None:
+                            continue
+                        candidates.append((shift, candidate_result))
+                        candidate_median = candidate_result.epipolar_error_median_px
+                        candidate_inliers = candidate_result.epipolar_inlier_ratio
+                        median_text = (
+                            f"{candidate_median:.3f}px"
+                            if candidate_median is not None
+                            else "n/a"
+                        )
+                        inlier_text = (
+                            f"{candidate_inliers * 100:.1f}%"
+                            if candidate_inliers is not None
+                            else "n/a"
+                        )
+                        log_calibration_progress(
+                            f"Visual sync candidate {shift:+d} frames: "
+                            f"RMS={candidate_result.reprojection_error_px:.3f}px, "
+                            f"median={median_text}, inliers={inlier_text}."
+                        )
+                if any(result.is_valid for _, result in candidates):
+                    break
+            if not candidates:
+                raise ValueError("No stereo sync candidate produced usable board geometry.")
+            selected_frame_shift_b, stereo_result = min(
+                candidates,
+                key=lambda item: (
+                    not item[1].is_valid,
+                    item[1].reprojection_error_px,
+                    item[1].epipolar_error_median_px
+                    if item[1].epipolar_error_median_px is not None
+                    else float("inf"),
+                    -(
+                        item[1].epipolar_inlier_ratio
+                        if item[1].epipolar_inlier_ratio is not None
+                        else 0.0
+                    ),
+                ),
+            )
+            log_calibration_progress(
+                f"Selected Camera B visual sync refinement {selected_frame_shift_b:+d} "
+                "frames."
             )
             if all(
                 value is not None
@@ -390,18 +554,24 @@ def upload_and_calibrate(
             # calibration geometry does not consume it, and it added ~26s
             # after the stereo solve had already finished.  Persist the cheap
             # container rates for diagnostics instead.
-            cap_a = cv2.VideoCapture(str(path_a))
-            cap_b = cv2.VideoCapture(str(path_b))
+            from golfie_cv.video import VideoReadError, read_video_metadata
+
             try:
-                fps_a = float(cap_a.get(cv2.CAP_PROP_FPS))
-                fps_b = float(cap_b.get(cv2.CAP_PROP_FPS))
-                stereo_result.camera_a_calibration_fps = fps_a if fps_a > 0 else None
-                stereo_result.camera_b_calibration_fps = fps_b if fps_b > 0 else None
-            finally:
-                cap_a.release()
-                cap_b.release()
+                metadata_a = read_video_metadata(path_a)
+                metadata_b = read_video_metadata(path_b)
+                stereo_result.camera_a_calibration_fps = (
+                    metadata_a.fps * slow_motion_factor_a
+                )
+                stereo_result.camera_b_calibration_fps = (
+                    metadata_b.fps * slow_motion_factor_b
+                )
+            except VideoReadError:
+                # The geometry result remains valid even when a damaged or
+                # synthetic container cannot provide optional rate metadata.
+                stereo_result.camera_a_calibration_fps = None
+                stereo_result.camera_b_calibration_fps = None
             log_calibration_progress(
-                "Recorded calibration container rates.", 95, "metadata"
+                "Recorded effective physical calibration rates.", 95, "metadata"
             )
         except Exception as exc:
             log_calibration_progress(f"Stereo extrinsic calibration failed: {exc}")

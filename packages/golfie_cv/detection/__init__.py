@@ -79,9 +79,6 @@ def detect_ball_candidates(frame: np.ndarray, background_model: np.ndarray | Non
     mask = cv2.bitwise_and(motion_mask, color_mask)
     component_count, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, 8)
 
-    if component_count <= 1:
-        return []
-
     flat_labels = labels.ravel()
     areas = stats[:, cv2.CC_STAT_AREA].astype(np.float64)
     safe_areas = np.maximum(areas, 1.0)
@@ -111,16 +108,60 @@ def detect_ball_candidates(frame: np.ndarray, background_model: np.ndarray | Non
         & (mean_motion >= 24.0)
     )
     valid = valid[valid != 0]
-    if not len(valid):
-        return []
-    preliminary_score = (
-        0.50 * appearance_by_component[valid]
-        + 0.30 * np.clip(mean_motion[valid] / 160.0, 0.0, 1.0)
-        + 0.20 * np.clip(np.sqrt(areas[valid] / 80.0), 0.0, 1.0)
-    )
-    valid = valid[np.argsort(preliminary_score)[::-1][:60]]
+    if len(valid):
+        preliminary_score = (
+            0.50 * appearance_by_component[valid]
+            + 0.30 * np.clip(mean_motion[valid] / 160.0, 0.0, 1.0)
+            + 0.20 * np.clip(np.sqrt(areas[valid] / 80.0), 0.0, 1.0)
+        )
+        valid = valid[np.argsort(preliminary_score)[::-1][:60]]
     
     candidates = []
+
+    # A brightly coloured ball can become a near-black silhouette when the
+    # down-the-line phone points toward a low sun. The broad colour mask above
+    # intentionally excludes those pixels, so retain compact regions that
+    # became substantially darker than the pre-impact background. These are
+    # only candidates: calibrated stereo geometry and 3D launch physics still
+    # decide whether any region is actually the ball.
+    if diff is not None:
+        dark_change = cv2.subtract(bg_gray, gray)
+        dark_mask = cv2.inRange(dark_change, motion_threshold, 255)
+        dark_mask = cv2.bitwise_and(dark_mask, motion_mask)
+        dark_count, _, dark_stats, dark_centroids = cv2.connectedComponentsWithStats(
+            dark_mask, 8
+        )
+        for dark_label in range(1, dark_count):
+            left, top, width, height, dark_area = dark_stats[dark_label]
+            if (
+                dark_area < 6
+                or dark_area > 3000
+                or width > 180
+                or height > 120
+            ):
+                continue
+            aspect = max(width, height) / max(1.0, min(width, height))
+            if aspect > 12.0:
+                continue
+            x, y = dark_centroids[dark_label]
+            local_change = float(
+                np.mean(dark_change[top:top + height, left:left + width])
+            ) / 255.0
+            if local_change < 0.10:
+                continue
+            confidence = float(np.clip(0.68 + 0.25 * local_change, 0.68, 0.93))
+            candidates.append(
+                BallCandidate(
+                    x_px=float(x),
+                    y_px=float(y),
+                    radius_px=float(0.25 * (width + height)),
+                    confidence=confidence,
+                    is_streak=aspect >= 1.6,
+                    appearance_score=0.45,
+                    bbox_width_px=float(width),
+                    bbox_height_px=float(height),
+                )
+            )
 
     # Optic-yellow balls deserve a dedicated pool. On outdoor grass the broad
     # motion mask can fragment or merge a long exposure streak, whereas the

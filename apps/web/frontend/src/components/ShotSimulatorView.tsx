@@ -106,17 +106,10 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
         />
       </div>
 
-      {/* Top HUD Alert Deck */}
-      {(payload.is_placeholder || payload.warnings.length > 0) && (
+      {/* Real-session processing warnings only; the sample's synthetic status is
+          already clear from the session picker and should not obstruct the HUD. */}
+      {!payload.is_placeholder && payload.warnings.length > 0 && (
         <div className="shot-simulator-hud__alerts">
-          {payload.is_placeholder && (
-            <div className="hud-alert-banner hud-alert-banner--placeholder">
-              <span className="hud-alert-banner__tag">METRIC SOURCE: DEMO</span>
-              <p className="hud-alert-banner__message">
-                {payload.notes ?? "Telemetry calculated utilizing simulation parameters."}
-              </p>
-            </div>
-          )}
           {payload.warnings.map((w, idx) => (
             <div key={idx} className="hud-alert-banner hud-alert-banner--warning">
               <span className="hud-alert-banner__tag">WARN //</span>
@@ -206,6 +199,9 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
           <MetricCard label="Total distance" metric={metrics.total_m} unit="yd" format={formatMetric} />
           <MetricCard label="Apex height" metric={metrics.apex_m} unit="yd" format={formatMetric} />
           <MetricCard label="Side deviation" metric={metrics.side_deviation_m} unit="yd" format={formatMetric} />
+          <MetricCard label="Backspin" metric={metrics.backspin_rpm} unit="rpm" format={formatMetric} />
+          <MetricCard label="Sidespin" metric={metrics.sidespin_rpm} unit="rpm" format={formatMetric} />
+          <MetricCard label="Spin axis" metric={metrics.spin_axis_deg} unit="deg" format={formatMetric} />
         </div>
       </div>
 

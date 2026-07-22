@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class CameraIntrinsics(BaseModel):
@@ -69,6 +69,8 @@ class CameraCapture(BaseModel):
     fps: float
     resolution: Tuple[int, int]
     video_path: str
+    original_filename: Optional[str] = None
+    slow_motion_factor: float = Field(default=1.0, ge=1.0, le=32.0)
     role_hint: Optional[str] = None  # e.g. "down_the_line", "face_on"
     intrinsics: Optional[CameraIntrinsics] = None
     extrinsics: Optional[CameraExtrinsics] = None

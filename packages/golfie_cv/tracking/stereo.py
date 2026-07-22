@@ -31,6 +31,24 @@ class _Hypothesis:
     score: float
 
 
+def _path_motion_quality(positions: np.ndarray) -> tuple[float, float, float]:
+    """Return median step, path efficiency, and normalized acceleration."""
+    vectors = np.diff(positions, axis=0)
+    steps = np.linalg.norm(vectors, axis=1)
+    if len(steps) == 0:
+        return 0.0, 0.0, float("inf")
+    median_step = float(np.median(steps))
+    path_length = float(np.sum(steps))
+    displacement = float(np.linalg.norm(positions[-1] - positions[0]))
+    efficiency = displacement / max(path_length, 1e-6)
+    if len(vectors) < 2:
+        acceleration_ratio = 0.0
+    else:
+        accelerations = np.linalg.norm(np.diff(vectors, axis=0), axis=1)
+        acceleration_ratio = float(np.median(accelerations)) / max(median_step, 1e-6)
+    return median_step, efficiency, acceleration_ratio
+
+
 def _extrinsic(value: list[list[float]]) -> np.ndarray:
     matrix = np.asarray(value, dtype=np.float64)
     return matrix[:3, :] if matrix.shape == (4, 4) else matrix
@@ -244,6 +262,7 @@ def track_optic_ball_stereo(
                             frame_index=a_item[0], time_seconds=index / fps,
                             x_px=a_item[1].x_px, y_px=a_item[1].y_px,
                             confidence=a_item[1].confidence,
+                            radius_px=a_item[1].radius_px,
                         )
                         for index, (a_item, _b_item) in enumerate(selected)
                     ]
@@ -252,6 +271,7 @@ def track_optic_ball_stereo(
                             frame_index=b_item[0], time_seconds=index / fps,
                             x_px=b_item[1].x_px, y_px=b_item[1].y_px,
                             confidence=b_item[1].confidence,
+                            radius_px=b_item[1].radius_px,
                         )
                         for index, (_a_item, b_item) in enumerate(selected)
                     ]
@@ -286,6 +306,8 @@ def _track_ball_stereo_aligned(
     candidates_b: list[list[BallCandidate]],
     fps: float,
     calibration: CalibrationResult,
+    epipolar_limit_px: float | None = None,
+    require_physical_launch: bool = False,
 ) -> tuple[list[TrackedPoint2D], list[TrackedPoint2D]]:
     """Return a jointly selected pair of local-timeline 2D tracks."""
     if not calibration.is_valid:
@@ -303,7 +325,14 @@ def _track_ball_stereo_aligned(
 
     essential = _essential(calibration)
     calibration_p95 = calibration.epipolar_error_p95_px
-    limit_px = 3.0 if calibration_p95 is None else float(np.clip(2.0 * calibration_p95, 2.0, 5.0))
+    default_limit_px = (
+        3.0 if calibration_p95 is None
+        else float(np.clip(2.0 * calibration_p95, 2.0, 5.0))
+    )
+    limit_px = (
+        default_limit_px if epipolar_limit_px is None
+        else float(max(default_limit_px, epipolar_limit_px))
+    )
     hypotheses: list[_Hypothesis] = []
     completed: list[_Hypothesis] = []
 
@@ -361,41 +390,138 @@ def _track_ball_stereo_aligned(
         displacement_b = float(np.hypot(last.b.x_px - first.b.x_px, last.b.y_px - first.b.y_px))
         if displacement_a < 8.0 or displacement_b < 8.0:
             continue
+        positions_a = np.asarray([(pair.a.x_px, pair.a.y_px) for pair in hypothesis.pairs])
+        positions_b = np.asarray([(pair.b.x_px, pair.b.y_px) for pair in hypothesis.pairs])
+        steps_a = np.linalg.norm(np.diff(positions_a, axis=0), axis=1)
+        steps_b = np.linalg.norm(np.diff(positions_b, axis=0), axis=1)
+        joint_stationary = float(np.mean((steps_a < 2.0) | (steps_b < 2.0)))
+        if joint_stationary > 0.55:
+            continue
+        median_a, efficiency_a, acceleration_a = _path_motion_quality(positions_a)
+        median_b, efficiency_b, acceleration_b = _path_motion_quality(positions_b)
+        # A ball flight is nearly monotonic during this short post-impact
+        # window. Club edges and codec blocks often win on raw displacement by
+        # jumping between unrelated highlights, which produces a winding path
+        # and abrupt velocity changes in one or both cameras.
+        if min(efficiency_a, efficiency_b) < 0.5:
+            continue
+        if max(acceleration_a, acceleration_b) > 1.5:
+            continue
+        median_motion = median_a + median_b
+        smoothness = efficiency_a + efficiency_b - 0.5 * (acceleration_a + acceleration_b)
         launch_frame = first.frame
         timing_score = 1.0 if 6 <= launch_frame <= 38 else 0.25
         mean_epi = float(np.mean([p.epipolar_error_px for p in hypothesis.pairs]))
         final_score = (
             hypothesis.score
             + timing_score * (displacement_a + displacement_b) / 15.0
+            + 1.5 * median_motion
+            + 20.0 * smoothness
+            - 30.0 * joint_stationary
             - mean_epi
         )
         valid.append((final_score, hypothesis))
 
     if not valid:
         return [], []
-    best = max(valid, key=lambda item: item[0])[1]
 
-    track_a = [
-        TrackedPoint2D(
-            frame_index=pair.frame,
-            time_seconds=pair.frame / fps,
-            x_px=pair.a.x_px,
-            y_px=pair.a.y_px,
-            confidence=pair.a.confidence,
+    if not require_physical_launch:
+        best = max(valid, key=lambda item: item[0])[1]
+        return (
+            [
+                TrackedPoint2D(
+                    frame_index=pair.frame,
+                    time_seconds=pair.frame / fps,
+                    x_px=pair.a.x_px,
+                    y_px=pair.a.y_px,
+                    confidence=pair.a.confidence,
+                    radius_px=pair.a.radius_px,
+                )
+                for pair in best.pairs
+            ],
+            [
+                TrackedPoint2D(
+                    frame_index=pair.frame,
+                    time_seconds=pair.frame / fps,
+                    x_px=pair.b.x_px,
+                    y_px=pair.b.y_px,
+                    confidence=pair.b.confidence,
+                    radius_px=pair.b.radius_px,
+                )
+                for pair in best.pairs
+            ],
         )
-        for pair in best.pairs
-    ]
-    track_b = [
-        TrackedPoint2D(
-            frame_index=pair.frame,
-            time_seconds=pair.frame / fps,
-            x_px=pair.b.x_px,
-            y_px=pair.b.y_px,
-            confidence=pair.b.confidence,
+
+    # Image-space smoothness is necessary but not sufficient: a club edge can
+    # move smoothly and satisfy an epipolar line. Rank the strongest surviving
+    # hypotheses by their reconstructed launch, so only a forward/upward path
+    # with golf-ball-scale speed can be returned to the main physics fitter.
+    from golfie_cv.triangulation import triangulate_track
+
+    physical: list[tuple[float, list[TrackedPoint2D], list[TrackedPoint2D]]] = []
+    for image_score, hypothesis in sorted(valid, key=lambda item: item[0], reverse=True)[:80]:
+        track_a = [
+            TrackedPoint2D(
+                frame_index=pair.frame,
+                time_seconds=pair.frame / fps,
+                x_px=pair.a.x_px,
+                y_px=pair.a.y_px,
+                confidence=pair.a.confidence,
+                radius_px=pair.a.radius_px,
+            )
+            for pair in hypothesis.pairs
+        ]
+        track_b = [
+            TrackedPoint2D(
+                frame_index=pair.frame,
+                time_seconds=pair.frame / fps,
+                x_px=pair.b.x_px,
+                y_px=pair.b.y_px,
+                confidence=pair.b.confidence,
+                radius_px=pair.b.radius_px,
+            )
+            for pair in hypothesis.pairs
+        ]
+        try:
+            points = triangulate_track(
+                track_a, track_b, calibration, epipolar_limit_px=epipolar_limit_px
+            )
+        except ValueError:
+            continue
+        # Four points can be manufactured by a short club/grass coincidence
+        # over only 25 ms. Require enough consecutive stereo evidence to
+        # observe an actual launch segment before accepting the hypothesis.
+        if len(points) < 6:
+            continue
+        times = np.asarray([point.time_seconds for point in points], dtype=np.float64)
+        positions = np.asarray(
+            [(point.x_m, point.y_m, point.z_m) for point in points], dtype=np.float64
         )
-        for pair in best.pairs
-    ]
-    return track_a, track_b
+        design = np.column_stack([np.ones(len(times)), times - times[0]])
+        coefficients, *_ = np.linalg.lstsq(design, positions, rcond=None)
+        velocity = coefficients[1]
+        speed = float(np.linalg.norm(velocity))
+        residual = float(np.sqrt(np.mean((design @ coefficients - positions) ** 2)))
+        if not (10.0 <= speed <= 95.0):
+            continue
+        if velocity[0] <= 1.0 or velocity[2] <= 0.0 or residual > 0.04:
+            continue
+        reprojection = np.asarray(
+            [point.reprojection_error_px or 0.0 for point in points], dtype=np.float64
+        )
+        physics_score = (
+            image_score
+            + 30.0 * len(points)
+            + 0.5 * speed
+            - 1000.0 * residual
+            - 3.0 * float(np.median(reprojection))
+        )
+        physical.append((physics_score, track_a, track_b))
+
+    if not physical:
+        return [], []
+    best = max(physical, key=lambda item: item[0])
+    return best[1], best[2]
 
 
 def track_ball_stereo(
@@ -404,6 +530,8 @@ def track_ball_stereo(
     fps: float,
     calibration: CalibrationResult,
     max_temporal_shift_frames: int = 10,
+    epipolar_limit_px: float | None = None,
+    require_physical_launch: bool = False,
 ) -> tuple[list[TrackedPoint2D], list[TrackedPoint2D]]:
     """Select the stereo track while correcting small impact/speed-ramp sync errors.
 
@@ -425,6 +553,8 @@ def track_ball_stereo(
             candidates_b[start_b:start_b + available],
             fps,
             calibration,
+            epipolar_limit_px=epipolar_limit_px,
+            require_physical_launch=require_physical_launch,
         )
         if not track_a or not track_b:
             continue
@@ -435,6 +565,7 @@ def track_ball_stereo(
                 x_px=point.x_px,
                 y_px=point.y_px,
                 confidence=point.confidence,
+                radius_px=point.radius_px,
             )
             for point in track_a
         ]
@@ -445,6 +576,7 @@ def track_ball_stereo(
                 x_px=point.x_px,
                 y_px=point.y_px,
                 confidence=point.confidence,
+                radius_px=point.radius_px,
             )
             for point in track_b
         ]
@@ -453,7 +585,23 @@ def track_ball_stereo(
             np.hypot(track_a[-1].x_px - track_a[0].x_px, track_a[-1].y_px - track_a[0].y_px)
             + np.hypot(track_b[-1].x_px - track_b[0].x_px, track_b[-1].y_px - track_b[0].y_px)
         )
-        score = 10.0 * len(track_a) + confidence + min(displacement, 500.0) / 500.0
+        positions_a = np.asarray([(point.x_px, point.y_px) for point in track_a])
+        positions_b = np.asarray([(point.x_px, point.y_px) for point in track_b])
+        steps_a = np.linalg.norm(np.diff(positions_a, axis=0), axis=1)
+        steps_b = np.linalg.norm(np.diff(positions_b, axis=0), axis=1)
+        joint_stationary = float(np.mean((steps_a < 2.0) | (steps_b < 2.0)))
+        median_a, efficiency_a, acceleration_a = _path_motion_quality(positions_a)
+        median_b, efficiency_b, acceleration_b = _path_motion_quality(positions_b)
+        median_motion = median_a + median_b
+        smoothness = efficiency_a + efficiency_b - 0.5 * (acceleration_a + acceleration_b)
+        score = (
+            4.0 * len(track_a)
+            + confidence
+            + min(displacement, 800.0) / 20.0
+            + 2.0 * median_motion
+            + 20.0 * smoothness
+            - 40.0 * joint_stationary
+        )
         if best is None or score > best[0]:
             best = (score, track_a, track_b)
     return (best[1], best[2]) if best is not None else ([], [])

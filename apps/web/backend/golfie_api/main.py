@@ -28,7 +28,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from golfie_api.config import SAMPLE_SESSIONS_DIR
-from golfie_api.routers import sessions_router, calibration_router
+from golfie_api.routers import calibration_router, sessions_router, video_trimmer_router
 
 app = FastAPI(
     title="Golfie API",
@@ -50,6 +50,7 @@ app.add_middleware(
 
 app.include_router(sessions_router)
 app.include_router(calibration_router)
+app.include_router(video_trimmer_router)
 
 
 @app.get("/health")

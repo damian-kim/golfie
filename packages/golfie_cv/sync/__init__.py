@@ -202,6 +202,29 @@ def generate_alignment_plot(
     plt.close()
 
 
+def estimate_sync_landmarks(
+    video_path_a: str | Path, video_path_b: str | Path
+) -> tuple[float, float, float]:
+    """Return the clap position on each video's own playback timeline.
+
+    Keeping both landmarks is essential for differently retimed slow-motion
+    files: their timeline relationship has a scale as well as an offset.
+    """
+    video_path_a = Path(video_path_a)
+    video_path_b = Path(video_path_b)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        wav_a = Path(tmpdir) / "audio_a.wav"
+        wav_b = Path(tmpdir) / "audio_b.wav"
+        if not _extract_audio(video_path_a, wav_a) or not _extract_audio(video_path_b, wav_b):
+            raise ValueError("Audio could not be extracted from one or both videos.")
+        rate_a, data_a = wavfile.read(wav_a)
+        rate_b, data_b = wavfile.read(wav_b)
+        _, confidence, peak_a, peak_b = align_audio_data(
+            data_a, rate_a, data_b, rate_b
+        )
+        return peak_a / rate_a, peak_b / rate_b, confidence
+
+
 def estimate_sync_offset(video_path_a: str | Path, video_path_b: str | Path) -> SyncResult:
     """Estimate the time offset between two independently-started recordings.
 

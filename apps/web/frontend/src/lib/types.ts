@@ -47,6 +47,8 @@ export interface CameraCapture {
   fps: number;
   resolution: [number, number];
   video_path: string;
+  original_filename: string | null;
+  slow_motion_factor: number;
   role_hint: string | null;
   intrinsics: unknown | null;
   extrinsics: unknown | null;
@@ -110,6 +112,7 @@ export interface ShotResult {
 export interface Session {
   session_id: string;
   created_at: string;
+  processed_at: string | null;
   environment: Environment;
   stage: ProcessingStage;
   error: string | null;
@@ -121,6 +124,16 @@ export interface Session {
   calibration: CalibrationResult | null;
   sync: SyncResult | null;
   shot: ShotResult | null;
+}
+
+export interface PreviousSessionSummary {
+  session_id: string;
+  session_uid: string;
+  processed_at: string;
+  camera_a_filename: string;
+  camera_b_filename: string;
+  upload_identifier: string;
+  is_placeholder: boolean;
 }
 
 // --- Renderer payload (golfie_render.threejs.build_trajectory_payload) ---
@@ -146,4 +159,28 @@ export interface TrajectoryPayload {
   measured_points: ScenePoint[];
   fitted_points: ScenePoint[];
   simulated_trajectory: ScenePoint[];
+}
+
+export interface TrimJobResult {
+  trim_id: string;
+  created_at: string;
+  original_filename: string;
+  output_filename: string;
+  source_duration_seconds: number;
+  requested_start_seconds: number;
+  requested_end_seconds: number;
+  actual_start_seconds: number;
+  actual_end_seconds: number;
+  output_duration_seconds: number;
+  fps: number;
+  width: number;
+  height: number;
+  sample_aspect_ratio: string;
+  display_aspect_ratio: string;
+  video_codec: string;
+  audio_codec: string | null;
+  keyframe_aligned: boolean;
+  lossless: boolean;
+  preview_url: string;
+  download_url: string;
 }

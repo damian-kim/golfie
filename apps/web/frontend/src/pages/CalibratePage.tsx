@@ -224,6 +224,8 @@ export function CalibratePage() {
 
   const [fileA, setFileA] = useState<File | null>(null);
   const [fileB, setFileB] = useState<File | null>(null);
+  const [slowMotionFactorA, setSlowMotionFactorA] = useState(1);
+  const [slowMotionFactorB, setSlowMotionFactorB] = useState(1);
 
   // Auto set preset parameters
   const handlePresetChange = (presetId: string) => {
@@ -284,7 +286,7 @@ export function CalibratePage() {
     // browsers drop requests at roughly one minute). The backend persists the
     // validated result before replying, so recover it from status rather than
     // falsely claiming that calibration failed.
-    for (let attempt = 0; attempt < 120; attempt += 1) {
+    for (let attempt = 0; attempt < 600; attempt += 1) {
       const status = await api.getCalibrationStatus();
       setProgressPercent(Math.min(100, Math.max(1, status.progress)));
       setProgressMessage(status.message);
@@ -299,7 +301,7 @@ export function CalibratePage() {
       }
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-    throw new ApiError(0, "Calibration is still running, but recovery timed out after two minutes.");
+    throw new ApiError(0, "Calibration is still running, but recovery timed out after ten minutes.");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -323,6 +325,8 @@ export function CalibratePage() {
         gridRows,
         squareSizeMeters,
         markerSizeMeters,
+        slowMotionFactorA,
+        slowMotionFactorB,
         measuredBaselineM === "" ? undefined : measuredBaselineM
       );
       setProgressPercent(100);
@@ -675,6 +679,20 @@ export function CalibratePage() {
                   {fileA.name} · {(fileA.size / (1024 * 1024)).toFixed(1)} MB
                 </span>
               )}
+              <label className="field" style={{ marginTop: 14 }}>
+                <span className="field__label">Playback slowdown</span>
+                <select
+                  value={slowMotionFactorA}
+                  onChange={(e) => setSlowMotionFactorA(Number(e.target.value))}
+                >
+                  <option value={1}>Normal speed (1x)</option>
+                  <option value={2}>2x slower</option>
+                  <option value={4}>4x slower</option>
+                  <option value={8}>8x slower</option>
+                  <option value={16}>16x slower</option>
+                </select>
+                <span className="field__hint">This is playback speed, not recorded FPS. Use 1x for real-time video.</span>
+              </label>
             </div>
             <div className="card">
               <h2 className="card__title">Camera B Video (Face-On)</h2>
@@ -691,6 +709,20 @@ export function CalibratePage() {
                   {fileB.name} · {(fileB.size / (1024 * 1024)).toFixed(1)} MB
                 </span>
               )}
+              <label className="field" style={{ marginTop: 14 }}>
+                <span className="field__label">Playback slowdown</span>
+                <select
+                  value={slowMotionFactorB}
+                  onChange={(e) => setSlowMotionFactorB(Number(e.target.value))}
+                >
+                  <option value={1}>Normal speed (1x)</option>
+                  <option value={2}>2x slower</option>
+                  <option value={4}>4x slower</option>
+                  <option value={8}>8x slower</option>
+                  <option value={16}>16x slower</option>
+                </select>
+                <span className="field__hint">This is playback speed, not recorded FPS. Use 1x for real-time video.</span>
+              </label>
             </div>
           </div>
 

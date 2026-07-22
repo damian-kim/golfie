@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from golfie_core.schemas import MetricSource, TrackedPoint3D
+from golfie_core.config.physical_constants import GOLF_BALL_RADIUS_M
 from golfie_physics.integrators.rk4 import integrate
 from golfie_physics.models.params import FlightParams
 
@@ -95,15 +96,23 @@ def _acceleration(
         accel += -(drag_force_mag / params.mass_kg) * (velocity_mps / speed)
 
     if params.lift_enabled and spin_rad_s is not None and speed > 1e-9:
-        # Simplified Magnus model: lift acts along spin x velocity,
-        # magnitude scaled by lift_coefficient. This is a coarse
-        # approximation (no spin-ratio-dependent Cl curve) and must stay
-        # labeled experimental until validated against real data.
+        # Lift acts along spin x velocity. Scale Cl by the dimensionless spin
+        # ratio (omega * radius / speed), capped by the configured coefficient.
+        # This keeps low-spin shots from receiving the same lift as a wedge.
         cross = np.cross(spin_rad_s, velocity_mps)
         cross_norm = np.linalg.norm(cross)
         if cross_norm > 1e-9:
+            spin_ratio = float(np.linalg.norm(spin_rad_s)) * GOLF_BALL_RADIUS_M / speed
+            effective_lift_coefficient = min(
+                params.lift_coefficient,
+                max(0.0, 1.6 * spin_ratio),
+            )
             lift_force_mag = (
-                0.5 * params.air_density_kg_m3 * params.lift_coefficient * params.cross_section_m2 * speed**2
+                0.5
+                * params.air_density_kg_m3
+                * effective_lift_coefficient
+                * params.cross_section_m2
+                * speed**2
             )
             accel += (lift_force_mag / params.mass_kg) * (cross / cross_norm)
 

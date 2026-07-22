@@ -23,6 +23,7 @@ from golfie_core.schemas.sync import SyncResult
 class Session(BaseModel):
     session_id: str = Field(default_factory=lambda: uuid4().hex[:12])
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    processed_at: Optional[datetime] = None
     environment: Environment = Environment.UNKNOWN
     stage: ProcessingStage = ProcessingStage.CREATED
     error: Optional[str] = None

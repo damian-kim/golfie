@@ -16,6 +16,8 @@ export function UploadPage() {
   const [roleB, setRoleB] = useState<"down_the_line" | "face_on">("face_on");
   const [fpsA, setFpsA] = useState<string>("");
   const [fpsB, setFpsB] = useState<string>("");
+  const [slowMotionFactorA, setSlowMotionFactorA] = useState(1);
+  const [slowMotionFactorB, setSlowMotionFactorB] = useState(1);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +53,8 @@ export function UploadPage() {
         fileA,
         roleA,
         undefined,
-        fpsA ? parseFloat(fpsA) : undefined
+        fpsA ? parseFloat(fpsA) : undefined,
+        slowMotionFactorA
       );
 
       setStep("Uploading camera B video…");
@@ -61,7 +64,8 @@ export function UploadPage() {
         fileB,
         roleB,
         undefined,
-        fpsB ? parseFloat(fpsB) : undefined
+        fpsB ? parseFloat(fpsB) : undefined,
+        slowMotionFactorB
       );
 
       navigate(`/sessions/${session.session_id}/processing`);
@@ -155,6 +159,8 @@ export function UploadPage() {
             onRole={setRoleA}
             fps={fpsA}
             onFps={setFpsA}
+            slowMotionFactor={slowMotionFactorA}
+            onSlowMotionFactor={setSlowMotionFactorA}
           />
           <CameraUploadCard
             label="Camera B"
@@ -164,6 +170,8 @@ export function UploadPage() {
             onRole={setRoleB}
             fps={fpsB}
             onFps={setFpsB}
+            slowMotionFactor={slowMotionFactorB}
+            onSlowMotionFactor={setSlowMotionFactorB}
           />
         </div>
 
@@ -189,6 +197,8 @@ function CameraUploadCard({
   onRole,
   fps,
   onFps,
+  slowMotionFactor,
+  onSlowMotionFactor,
 }: {
   label: string;
   file: File | null;
@@ -197,6 +207,8 @@ function CameraUploadCard({
   onRole: (r: "down_the_line" | "face_on") => void;
   fps: string;
   onFps: (f: string) => void;
+  slowMotionFactor: number;
+  onSlowMotionFactor: (factor: number) => void;
 }) {
   return (
     <div className="card">
@@ -236,7 +248,21 @@ function CameraUploadCard({
           </select>
         </label>
         <div className="field">
-          <span className="field__label">Original Capture Rate</span>
+          <span className="field__label">Playback slowdown</span>
+          <select
+            value={slowMotionFactor}
+            onChange={(e) => onSlowMotionFactor(Number(e.target.value))}
+          >
+            <option value={1}>Normal speed (1x)</option>
+            <option value={2}>2x slower</option>
+            <option value={4}>4x slower</option>
+            <option value={8}>8x slower</option>
+            <option value={16}>16x slower</option>
+          </select>
+          <span className="field__hint">Choose how much longer playback is than real time.</span>
+        </div>
+        <div className="field">
+          <span className="field__label">Capture rate override (advanced)</span>
           <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
             <select
               value={["", "240", "120", "60", "30"].includes(fps) ? fps : "custom"}
@@ -250,7 +276,7 @@ function CameraUploadCard({
               }}
               style={{ flex: 1 }}
             >
-              <option value="">Analyze file timing automatically (recommended)</option>
+              <option value="">Calculate from playback slowdown (recommended)</option>
               <option value="240">240 fps (Slow-Motion)</option>
               <option value="120">120 fps (Slow-Motion)</option>
               <option value="60">60 fps</option>
@@ -274,8 +300,8 @@ function CameraUploadCard({
         </div>
         {file && (
           <span className="field__hint">
-            {file.name} · {(file.size / (1024 * 1024)).toFixed(1)} MB. Capture-rate selection is
-            only a fallback when phone/export metadata cannot establish the slow-motion clock.
+            {file.name} · {(file.size / (1024 * 1024)).toFixed(1)} MB. Playback slowdown survives
+            even when trimming removes the phone&apos;s original slow-motion metadata.
           </span>
         )}
       </div>

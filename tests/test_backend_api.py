@@ -23,6 +23,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     import golfie_api.routers.sessions as sessions_module
+    import golfie_api.routers.video_trimmer as video_trimmer_module
     import golfie_api.storage as storage_pkg
     import golfie_api.storage.session_store  # noqa: F401 (ensures it's imported)
     from golfie_api import main as main_module
@@ -35,6 +36,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(storage_pkg, "session_store", isolated_store)
     monkeypatch.setattr(sessions_module, "session_store", isolated_store)
     monkeypatch.setattr(sessions_module, "CALIBRATION_DIR", tmp_path / "calibration")
+    monkeypatch.setattr(video_trimmer_module, "TRIMS_DIR", tmp_path / "trims")
+    (tmp_path / "trims").mkdir()
 
     return TestClient(main_module.app)
 
@@ -59,6 +62,38 @@ def test_health_check(client):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_manual_video_editor_is_downloadable_and_preserves_rate(client, sample_clip):
+    with open(sample_clip, "rb") as video:
+        response = client.post(
+            "/video-trimmer/trim",
+            files={"file": ("my-swing.mp4", video, "video/mp4")},
+            data={"start_seconds": "0.05", "end_seconds": "0.15"},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["lossless"] is True
+    assert body["requested_start_seconds"] == pytest.approx(0.05)
+    assert body["requested_end_seconds"] == pytest.approx(0.15)
+    assert body["fps"] == pytest.approx(240.0, rel=0.02)
+    assert body["width"] == 320
+    assert body["height"] == 240
+    assert body["output_filename"] == "my-swing-golfie-trim.mp4"
+
+    metadata = client.get(f"/video-trimmer/{body['trim_id']}")
+    assert metadata.status_code == 200
+    assert metadata.json()["requested_start_seconds"] == pytest.approx(0.05)
+
+    preview = client.get(body["preview_url"])
+    assert preview.status_code == 200
+    assert preview.headers["content-disposition"].startswith("inline")
+    assert len(preview.content) > 0
+
+    download = client.get(body["download_url"])
+    assert download.status_code == 200
+    assert download.headers["content-disposition"].startswith("attachment")
 
 
 def test_create_session_returns_unprocessed_session(client):
@@ -89,6 +124,7 @@ def test_full_session_lifecycle_is_honest_about_unimplemented_pipeline(client, s
         resp_a = client.post(f"/sessions/{sid}/upload/camera-a", files={"file": ("a.mp4", f, "video/mp4")})
     assert resp_a.status_code == 200
     assert resp_a.json()["camera_a"]["fps"] == pytest.approx(240.0, rel=0.02)
+    assert resp_a.json()["camera_a"]["original_filename"] == "a.mp4"
 
     with open(sample_clip, "rb") as f:
         resp_b = client.post(f"/sessions/{sid}/upload/camera-b", files={"file": ("b.mp4", f, "video/mp4")})
@@ -97,6 +133,7 @@ def test_full_session_lifecycle_is_honest_about_unimplemented_pipeline(client, s
     process_resp = client.post(f"/sessions/{sid}/process")
     assert process_resp.status_code == 200
     shot = process_resp.json()["shot"]
+    assert process_resp.json()["processed_at"] is not None
     assert shot["is_placeholder"] is True
     assert shot["metrics"]["ball_speed_mps"]["source"] == "not_available"
     assert any("calibration" in w.lower() for w in shot["warnings"])
@@ -104,6 +141,66 @@ def test_full_session_lifecycle_is_honest_about_unimplemented_pipeline(client, s
     trajectory = client.get(f"/sessions/{sid}/trajectory")
     assert trajectory.status_code == 200
     assert trajectory.json()["simulated_trajectory"] == []
+
+
+def test_session_history_keeps_only_newest_result_for_same_upload_names(client, sample_clip):
+    def create_processed_session(filename_a, filename_b, replayable=True):
+        session = client.post("/sessions", json={}).json()
+        session_id = session["session_id"]
+        with open(sample_clip, "rb") as video_a:
+            response_a = client.post(
+                f"/sessions/{session_id}/upload/camera-a",
+                files={"file": (filename_a, video_a, "video/mp4")},
+            )
+        with open(sample_clip, "rb") as video_b:
+            response_b = client.post(
+                f"/sessions/{session_id}/upload/camera-b",
+                files={"file": (filename_b, video_b, "video/mp4")},
+            )
+        assert response_a.status_code == 200
+        assert response_b.status_code == 200
+        processed = client.post(f"/sessions/{session_id}/process")
+        assert processed.status_code == 200
+        if replayable:
+            import golfie_api.routers.sessions as sessions_module
+            from golfie_core.schemas import TrackedPoint3D
+
+            stored_session = sessions_module.session_store.load(session_id)
+            stored_session.shot.simulated_trajectory_3d = [
+                TrackedPoint3D(
+                    time_seconds=0.0,
+                    x_m=0.0,
+                    y_m=0.0,
+                    z_m=0.0,
+                    confidence=1.0,
+                )
+            ]
+            sessions_module.session_store.save(stored_session)
+        return session_id
+
+    older_duplicate = create_processed_session("down_driver.mp4", "face_driver.mp4")
+    newer_duplicate = create_processed_session("down_driver.mp4", "face_driver.mp4")
+    distinct_session = create_processed_session("down_iron.mp4", "face_iron.mp4")
+    empty_session = create_processed_session(
+        "broken_down.mp4", "broken_face.mp4", replayable=False
+    )
+
+    response = client.get("/sessions/history")
+    assert response.status_code == 200
+    history = response.json()
+    assert len(history) == 2
+    assert older_duplicate not in {item["session_id"] for item in history}
+    assert empty_session not in {item["session_id"] for item in history}
+
+    driver_entry = next(
+        item for item in history if item["upload_identifier"] == "down_driver.mp4 + face_driver.mp4"
+    )
+    assert driver_entry["session_id"] == newer_duplicate
+    assert driver_entry["processed_at"]
+    assert driver_entry["session_uid"].endswith(
+        "__down_driver.mp4 + face_driver.mp4"
+    )
+    assert distinct_session in {item["session_id"] for item in history}
 
 
 def test_upload_rejects_unreadable_video(client, tmp_path):
@@ -298,11 +395,24 @@ def test_camera_upload_with_fps_override(client, sample_clip):
         resp = client.post(
             f"/sessions/{sid}/upload/camera-a",
             files={"file": ("a.mp4", f, "video/mp4")},
-            data={"fps_override": "240.0"}
+            data={"fps_override": "240.0", "slow_motion_factor": "8"}
         )
     assert resp.status_code == 200
     body = resp.json()
     assert body["camera_a"]["fps"] == 240.0
+    assert body["camera_a"]["slow_motion_factor"] == 8.0
+
+
+def test_slow_motion_candidate_frames_resample_to_common_physical_clock():
+    from golfie_api.pipeline import _resample_frame_sequence
+
+    camera_a, indices_a = _resample_frame_sequence(list(range(9)), 240.0, 120.0)
+    camera_b, indices_b = _resample_frame_sequence(list(range(5)), 120.0, 120.0)
+
+    assert camera_a == [0, 2, 4, 6, 8]
+    assert indices_a == [0, 2, 4, 6, 8]
+    assert camera_b == [0, 1, 2, 3, 4]
+    assert indices_b == [0, 1, 2, 3, 4]
 
 
 def test_mixed_rate_calibration_pairing_uses_snapped_a_timestamp():
@@ -319,3 +429,23 @@ def test_mixed_rate_calibration_pairing_uses_snapped_a_timestamp():
     aligned_a_time = idx_a / 30.0
     aligned_b_time = idx_b / 120.0 + offset
     assert abs(aligned_a_time - aligned_b_time) <= 0.5 / 120.0
+
+
+def test_slow_motion_calibration_pairing_uses_common_physical_time():
+    from golfie_api.routers.calibration import _slow_motion_frame_indices
+
+    idx_a, idx_b = _slow_motion_frame_indices(
+        progress_time=1.0,
+        landmark_time_a=10.0,
+        landmark_time_b=5.0,
+        playback_fps_a=30.0,
+        playback_fps_b=30.0,
+        slow_motion_factor_a=4.0,
+        slow_motion_factor_b=8.0,
+    )
+
+    assert idx_a == 420
+    assert idx_b == 390
+    assert (idx_a - 300) / (30.0 * 4.0) == pytest.approx(1.0)
+    assert (idx_b - 150) / (30.0 * 8.0) == pytest.approx(1.0)
+

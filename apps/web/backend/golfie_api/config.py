@@ -19,7 +19,8 @@ SAMPLE_SESSIONS_DIR = DATA_DIR / "sample_sessions"
 CALIBRATION_DIR = DATA_DIR / "calibration"
 RUNTIME_DIR = DATA_DIR / "runtime"
 TEMP_DIR = Path(os.environ.get("GOLFIE_TEMP_DIR", RUNTIME_DIR / "tmp"))
+TRIMS_DIR = Path(os.environ.get("GOLFIE_TRIMS_DIR", RUNTIME_DIR / "trims"))
 CALIBRATION_LOG_PATH = RUNTIME_DIR / "calibration.log"
 
-for _dir in (SHOTS_DIR, SAMPLE_SESSIONS_DIR, CALIBRATION_DIR, RUNTIME_DIR, TEMP_DIR):
+for _dir in (SHOTS_DIR, SAMPLE_SESSIONS_DIR, CALIBRATION_DIR, RUNTIME_DIR, TEMP_DIR, TRIMS_DIR):
     _dir.mkdir(parents=True, exist_ok=True)

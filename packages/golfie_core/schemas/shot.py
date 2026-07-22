@@ -18,9 +18,9 @@ class ShotMetrics(BaseModel):
     Required-by-v0 metrics (ball_speed, launch_angle, horizontal_launch,
     carry, total, apex, side_deviation) should normally have
     source=measured or source=estimated once the real pipeline is wired
-    up. Spin/club metrics default to NOT_AVAILABLE and must stay
-    EXPERIMENTAL at best until a real estimator exists -- never MEASURED,
-    per spec section 12.
+    up. Marked-ball spin metrics are ESTIMATED because two optical-axis
+    measurements still require a zero-rifle-spin constraint. Club metrics
+    remain unavailable until a real estimator exists.
     """
 
     ball_speed_mps: MetricValue = MetricValue.unavailable()

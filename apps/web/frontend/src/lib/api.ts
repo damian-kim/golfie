@@ -1,4 +1,11 @@
-import type { Session, ShotResult, TrajectoryPayload, CalibrationResult } from "./types";
+import type {
+  CalibrationResult,
+  PreviousSessionSummary,
+  Session,
+  ShotResult,
+  TrajectoryPayload,
+  TrimJobResult,
+} from "./types";
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -9,6 +16,12 @@ export class ApiError extends Error {
     this.status = status;
     this.name = "ApiError";
   }
+}
+
+export function apiUrl(path: string): string {
+  return path.startsWith("http://") || path.startsWith("https://")
+    ? path
+    : `${API_BASE_URL}${path}`;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -43,6 +56,25 @@ export interface CreateSessionInput {
 }
 
 export const api = {
+  trimVideoManually(
+    file: File,
+    startSeconds: number,
+    endSeconds: number
+  ): Promise<TrimJobResult> {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("start_seconds", startSeconds.toString());
+    form.append("end_seconds", endSeconds.toString());
+    return request<TrimJobResult>("/video-trimmer/trim", {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  getTrimResult(trimId: string): Promise<TrimJobResult> {
+    return request<TrimJobResult>(`/video-trimmer/${trimId}`);
+  },
+
   createSession(input: CreateSessionInput): Promise<Session> {
     return request<Session>("/sessions", {
       method: "POST",
@@ -55,6 +87,10 @@ export const api = {
     return request<string[]>("/sessions");
   },
 
+  listPreviousSessions(): Promise<PreviousSessionSummary[]> {
+    return request<PreviousSessionSummary[]>("/sessions/history");
+  },
+
   getSession(sessionId: string): Promise<Session> {
     return request<Session>(`/sessions/${sessionId}`);
   },
@@ -65,13 +101,15 @@ export const api = {
     file: File,
     roleHint?: string,
     deviceModel?: string,
-    fpsOverride?: number
+    fpsOverride?: number,
+    slowMotionFactor: number = 1
   ): Promise<Session> {
     const form = new FormData();
     form.append("file", file);
     if (roleHint) form.append("role_hint", roleHint);
     if (deviceModel) form.append("device_model", deviceModel);
     if (fpsOverride) form.append("fps_override", fpsOverride.toString());
+    form.append("slow_motion_factor", slowMotionFactor.toString());
     return request<Session>(`/sessions/${sessionId}/upload/${camera}`, {
       method: "POST",
       body: form,
@@ -127,6 +165,8 @@ export const api = {
     gridRows: number = 8,
     squareSize: number = 0.04,
     markerSize: number = 0.03,
+      slowMotionFactorA: number = 1,
+      slowMotionFactorB: number = 1,
     measuredBaseline?: number
   ): Promise<CalibrationResult> {
     const form = new FormData();
@@ -137,6 +177,8 @@ export const api = {
     form.append("grid_rows", gridRows.toString());
     form.append("square_size", squareSize.toString());
     form.append("marker_size", markerSize.toString());
+    form.append("slow_motion_factor_a", slowMotionFactorA.toString());
+    form.append("slow_motion_factor_b", slowMotionFactorB.toString());
     if (measuredBaseline !== undefined) {
       form.append("measured_baseline", measuredBaseline.toString());
     }

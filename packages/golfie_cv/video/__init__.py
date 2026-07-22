@@ -345,3 +345,22 @@ def extract_frame(video_path: str | Path, frame_index: int):
         cap.release()
 
 from golfie_cv.video.cfr_transcoder import ensure_constant_frame_rate
+from golfie_cv.video.lossless_trim import (
+    LosslessTrimError,
+    LosslessTrimResult,
+    trim_video_lossless,
+)
+
+__all__ = [
+    "LosslessTrimError",
+    "LosslessTrimResult",
+    "VideoMetadata",
+    "VideoReadError",
+    "VideoTiming",
+    "analyze_video_timing",
+    "ensure_constant_frame_rate",
+    "extract_frame",
+    "read_video_metadata",
+    "resolve_stereo_capture_rates",
+    "trim_video_lossless",
+]

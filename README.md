@@ -67,6 +67,15 @@ use it to sanity-check the 3D scene. The "Upload" flow exercises the
 real (if currently honest-but-boring) end-to-end pipeline: create a
 session, upload two videos, process, review, simulate.
 
+The **Video Editor** page at `http://localhost:5173/video-editor` is a separate
+single-video utility. Preview the original file, place start and end marks with
+sliders or exact timestamps, and export a downloadable FFmpeg stream-copy trim.
+Because no video frames are re-encoded, the source codec, FPS, resolution,
+pixel aspect ratio, and encoded image data are preserved. For inter-frame
+codecs, Golfie safely moves the selected start back to the nearest existing
+keyframe so the result remains independently playable and includes the full
+selection.
+
 **Standalone CLI** (no backend/frontend needed):
 ```bash
 python scripts/process_shot.py camera_a.mp4 camera_b.mp4 --club driver -o results.json
@@ -84,12 +93,12 @@ pytest tests/ -v
 | Video metadata (fps/resolution/duration) | Real (OpenCV) |
 | Session storage, upload, API lifecycle | Real |
 | RK4 projectile physics (gravity + drag) | Real, validated against closed-form projectile motion |
-| Magnus lift | Implemented, but experimental/unvalidated -- off by default |
+| Magnus lift | Enabled only when marked-ball stereo spin passes confidence gates |
 | Camera calibration | Implemented; full distortion model + held-out epipolar validation |
 | Video sync | Implemented; audio transient, with confidence gating |
 | Ball detection/tracking | Implemented MVP; joint stereo-aware hypothesis selection |
 | Triangulation | Implemented; undistorted rays, tight timing, epipolar/depth/parallax gates |
-| Launch parameter estimation / fitting | Implemented MVP; drag model, no spin estimation |
+| Launch parameter estimation / fitting | Implemented MVP; marked-ball spin estimation is confidence-gated |
 | Every shot metric you'll see today | Honestly `not_available` (see `golfie_core.schemas.MetricValue`) |
 
 The one exception is the synthetic demo session
@@ -102,8 +111,9 @@ only reports what was actually read from the input videos.
 ## Known limitations (v0)
 
 - No ground-roll model: simulated `total_m` always equals `carry_m`.
-- Magnus lift uses a simplified spin-independent-of-Cl model; treat any
-  spin-driven shot shape as illustrative, not validated.
+- Marked-ball spin uses two measured camera-axis components and assumes zero
+  rifle spin along the launch direction. Magnus lift scales with spin ratio,
+  but remains an estimated/unvalidated aerodynamic model.
 - Backend storage is per-process JSON files (no concurrency control);
   fine for one local user, not for multiple simultaneous writers.
 - Frontend has no automated UI/visual test in this environment (no

@@ -80,3 +80,17 @@ def test_detect_large_optic_yellow_phone_streak():
     assert optic[0].y_px == pytest.approx(850, abs=3)
     assert optic[0].is_streak
     assert optic[0].bbox_width_px > 150
+
+
+def test_detect_backlit_dark_ball_silhouette():
+    bg_model = np.full((180, 240, 3), (190, 150, 100), dtype=np.uint8)
+    frame = bg_model.copy()
+    cv2.circle(frame, (155, 62), 7, (25, 25, 25), thickness=-1)
+
+    candidates = detect_ball_candidates(frame, bg_model)
+
+    dark = [candidate for candidate in candidates if candidate.appearance_score == 0.45]
+    assert dark
+    assert dark[0].x_px == pytest.approx(155, abs=1)
+    assert dark[0].y_px == pytest.approx(62, abs=1)
+    assert dark[0].confidence >= 0.68

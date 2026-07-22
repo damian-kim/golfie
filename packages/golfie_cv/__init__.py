@@ -15,6 +15,7 @@ __all__ = [
     "sync",
     "detection",
     "tracking",
+    "spin",
     "triangulation",
     "debug",
 ]

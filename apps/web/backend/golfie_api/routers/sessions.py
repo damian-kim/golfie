@@ -21,7 +21,9 @@ from __future__ import annotations
 import shutil
 import threading
 import json
+import hashlib
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -62,6 +64,16 @@ class CreateSessionRequest(BaseModel):
     club: Optional[str] = None
     handedness: Optional[str] = None
     ball_type: Optional[str] = None
+
+
+class PreviousSessionSummary(BaseModel):
+    session_id: str
+    session_uid: str
+    processed_at: datetime
+    camera_a_filename: str
+    camera_b_filename: str
+    upload_identifier: str
+    is_placeholder: bool
 
 
 def _get_session_or_404(session_id: str) -> Session:
@@ -201,6 +213,101 @@ def list_sessions() -> list[str]:
     return session_store.list_ids()
 
 
+def _capture_filename(capture: CameraCapture | None, fallback: str) -> str:
+    if capture is None:
+        return fallback
+    return capture.original_filename or Path(capture.video_path).name or fallback
+
+
+def _capture_identity(capture: CameraCapture | None, fallback: str) -> str:
+    """Identify legacy uploads by content when their original name was not stored."""
+    if capture is None:
+        return fallback
+
+    video_path = Path(capture.video_path)
+    try:
+        size = video_path.stat().st_size
+        digest = hashlib.sha256()
+        with video_path.open("rb") as video:
+            digest.update(video.read(64 * 1024))
+            if size > 64 * 1024:
+                video.seek(max(0, size - 64 * 1024))
+                digest.update(video.read(64 * 1024))
+        return f"content:{size}:{digest.hexdigest()}"
+    except OSError:
+        return f"path:{video_path.name.casefold()}"
+
+
+@router.get("/history", response_model=list[PreviousSessionSummary])
+def list_previous_sessions() -> list[PreviousSessionSummary]:
+    """Return newest completed simulation per unique pair of upload filenames."""
+    candidates: list[tuple[datetime, Session, str, str]] = []
+    for session_id in session_store.list_ids():
+        try:
+            session = session_store.load(session_id)
+        except (SessionNotFoundError, OSError, ValueError):
+            continue
+        if (
+            session.stage.value != "done"
+            or session.shot is None
+            or not session.shot.simulated_trajectory_3d
+        ):
+            continue
+        processed_at = session.processed_at
+        if processed_at is None:
+            session_file = session_store.session_dir(session_id) / "session.json"
+            try:
+                processed_at = datetime.fromtimestamp(
+                    session_file.stat().st_mtime, tz=timezone.utc
+                )
+            except OSError:
+                processed_at = session.created_at
+        if processed_at.tzinfo is None:
+            processed_at = processed_at.replace(tzinfo=timezone.utc)
+        camera_a_filename = _capture_filename(session.camera_a, "camera_a")
+        camera_b_filename = _capture_filename(session.camera_b, "camera_b")
+        candidates.append((processed_at, session, camera_a_filename, camera_b_filename))
+
+    history: list[PreviousSessionSummary] = []
+    seen_upload_names: set[tuple[str, str]] = set()
+    seen_upload_content: set[tuple[str, str]] = set()
+    for processed_at, session, camera_a_filename, camera_b_filename in sorted(
+        candidates, key=lambda item: item[0], reverse=True
+    ):
+        content_key = (
+            _capture_identity(session.camera_a, "camera_a"),
+            _capture_identity(session.camera_b, "camera_b"),
+        )
+        name_key = None
+        if session.camera_a.original_filename and session.camera_b.original_filename:
+            name_key = (
+                session.camera_a.original_filename.casefold(),
+                session.camera_b.original_filename.casefold(),
+            )
+        if name_key is not None:
+            if name_key in seen_upload_names:
+                continue
+        elif content_key in seen_upload_content:
+            continue
+        seen_upload_content.add(content_key)
+        if name_key is not None:
+            seen_upload_names.add(name_key)
+        upload_identifier = f"{camera_a_filename} + {camera_b_filename}"
+        timestamp_uid = processed_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        history.append(
+            PreviousSessionSummary(
+                session_id=session.session_id,
+                session_uid=f"{timestamp_uid}__{upload_identifier}",
+                processed_at=processed_at,
+                camera_a_filename=camera_a_filename,
+                camera_b_filename=camera_b_filename,
+                upload_identifier=upload_identifier,
+                is_placeholder=session.shot.is_placeholder,
+            )
+        )
+    return history
+
+
 @router.get("/{session_id}", response_model=Session)
 def get_session(session_id: str) -> Session:
     return _get_session_or_404(session_id)
@@ -213,6 +320,7 @@ async def _save_upload_and_build_capture(
     role_hint: Optional[str],
     device_model: Optional[str],
     fps_override: Optional[float] = None,
+    slow_motion_factor: float = 1.0,
 ) -> CameraCapture:
     session_dir = session_store.session_dir(session_id)
     session_dir.mkdir(parents=True, exist_ok=True)
@@ -238,6 +346,8 @@ async def _save_upload_and_build_capture(
         fps=fps_override if fps_override is not None else meta.fps,
         resolution=(meta.width, meta.height),
         video_path=str(dest_path),
+        original_filename=Path(file.filename or dest_path.name).name,
+        slow_motion_factor=slow_motion_factor,
         role_hint=role_hint,
     )
 
@@ -249,10 +359,12 @@ async def upload_camera_a(
     role_hint: Optional[str] = Form(default=None),
     device_model: Optional[str] = Form(default=None),
     fps_override: Optional[float] = Form(default=None),
+    slow_motion_factor: float = Form(default=1.0, ge=1.0, le=32.0),
 ) -> Session:
     session = _get_session_or_404(session_id)
     session.camera_a = await _save_upload_and_build_capture(
-        session_id, "camera_a", file, role_hint, device_model, fps_override
+        session_id, "camera_a", file, role_hint, device_model, fps_override,
+        slow_motion_factor,
     )
     session_store.save(session)
     return session
@@ -265,10 +377,12 @@ async def upload_camera_b(
     role_hint: Optional[str] = Form(default=None),
     device_model: Optional[str] = Form(default=None),
     fps_override: Optional[float] = Form(default=None),
+    slow_motion_factor: float = Form(default=1.0, ge=1.0, le=32.0),
 ) -> Session:
     session = _get_session_or_404(session_id)
     session.camera_b = await _save_upload_and_build_capture(
-        session_id, "camera_b", file, role_hint, device_model, fps_override
+        session_id, "camera_b", file, role_hint, device_model, fps_override,
+        slow_motion_factor,
     )
     session_store.save(session)
     return session

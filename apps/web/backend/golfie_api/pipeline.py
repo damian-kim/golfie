@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from golfie_core.schemas import ProcessingStage, Session, ShotResult, build_placeholder_shot_result
 
 
@@ -20,6 +22,29 @@ def run_placeholder_processing(session: Session) -> ShotResult:
         calibration=session.calibration,
         sync=session.sync,
     )
+
+
+def _resample_frame_sequence(
+    frames: list,
+    source_fps: float,
+    target_fps: float,
+) -> tuple[list, list[int]]:
+    """Sample stored frames onto a lower common physical-time clock."""
+    if not frames or source_fps <= 0 or target_fps <= 0:
+        return [], []
+    if abs(source_fps - target_fps) <= 1e-6:
+        indices = list(range(len(frames)))
+        return frames, indices
+    duration = (len(frames) - 1) / source_fps
+    count = max(1, int(round(duration * target_fps)) + 1)
+    indices = [
+        min(len(frames) - 1, int(round(index * source_fps / target_fps)))
+        for index in range(count)
+    ]
+    # Rounding near the final sample can repeat an ordinal; tracking requires
+    # each physical-time sample to refer to a distinct source frame.
+    indices = list(dict.fromkeys(indices))
+    return [frames[index] for index in indices], indices
 
 
 def run_real_processing(session: Session) -> ShotResult:
@@ -102,6 +127,14 @@ def run_real_processing(session: Session) -> ShotResult:
     capture_fps_a, capture_fps_b, timing_reason = resolve_stereo_capture_rates(
         timing_a, timing_b, float(session.camera_a.fps), float(session.camera_b.fps)
     )
+    factor_a = float(session.camera_a.slow_motion_factor)
+    factor_b = float(session.camera_b.slow_motion_factor)
+    if factor_a > 1.0 and session.camera_a.fps <= timing_a.nominal_fps * 1.5:
+        capture_fps_a = timing_a.nominal_fps * factor_a
+        timing_reason += f"; Camera A explicit {factor_a:g}x playback slowdown"
+    if factor_b > 1.0 and session.camera_b.fps <= timing_b.nominal_fps * 1.5:
+        capture_fps_b = timing_b.nominal_fps * factor_b
+        timing_reason += f"; Camera B explicit {factor_b:g}x playback slowdown"
     slowmo_a = capture_fps_a > timing_a.nominal_fps * 1.5
     slowmo_b = capture_fps_b > timing_b.nominal_fps * 1.5
     slowmo_rendered = slowmo_a and slowmo_b
@@ -121,11 +154,6 @@ def run_real_processing(session: Session) -> ShotResult:
         raise PipelineError(
             "Only one camera could be identified as high-speed slow motion. Preserve native phone "
             "metadata or provide the original capture rate for the ambiguous file."
-        )
-    if slowmo_rendered and abs(capture_fps_a - capture_fps_b) > 1.0:
-        raise PipelineError(
-            f"Slow-motion capture rates differ ({capture_fps_a:.1f} vs {capture_fps_b:.1f} fps). "
-            "Stereo reconstruction requires the same original capture rate."
         )
 
     # Intrinsics are valid only for the exact sensor orientation/resolution
@@ -356,6 +384,29 @@ def run_real_processing(session: Session) -> ShotResult:
         log_progress(f"Error in candidate detection loop: {e}")
         raise PipelineError(f"Error processing video frames: {e}")
 
+    source_index_map_a = list(range(len(candidates_a)))
+    source_index_map_b = list(range(len(candidates_b)))
+    stereo_fps = 0.5 * (capture_fps_a + capture_fps_b)
+    if slowmo_rendered:
+        stereo_fps = min(capture_fps_a, capture_fps_b)
+        candidates_a, source_index_map_a = _resample_frame_sequence(
+            candidates_a, capture_fps_a, stereo_fps
+        )
+        candidates_b, source_index_map_b = _resample_frame_sequence(
+            candidates_b, capture_fps_b, stereo_fps
+        )
+        common_count = min(len(candidates_a), len(candidates_b))
+        candidates_a = candidates_a[:common_count]
+        candidates_b = candidates_b[:common_count]
+        source_index_map_a = source_index_map_a[:common_count]
+        source_index_map_b = source_index_map_b[:common_count]
+        log_progress(
+            "Physical-time resampling: "
+            f"Camera A {capture_fps_a:.1f} -> {stereo_fps:.1f} fps, "
+            f"Camera B {capture_fps_b:.1f} -> {stereo_fps:.1f} fps; "
+            f"{common_count} shared samples."
+        )
+
     log_progress("Candidate detection complete, starting 2D tracking...", ProcessingStage.TRACKING_BALL)
     for label, frames in (("Camera A", candidates_a), ("Camera B", candidates_b)):
         counts = np.asarray([len(frame) for frame in frames], dtype=np.int32)
@@ -367,14 +418,42 @@ def run_real_processing(session: Session) -> ShotResult:
     # 3. 2D Tracking
     if session.calibration.calibration_version >= 2:
         track_a, track_b = track_optic_ball_stereo(
-            candidates_a, candidates_b, 0.5 * (capture_fps_a + capture_fps_b), session.calibration
+            candidates_a, candidates_b, stereo_fps, session.calibration
         )
         tracking_method = "optic-color physics-scored"
         if not track_a or not track_b:
+            optic_candidates_a = [
+                [candidate for candidate in frame if candidate.is_optic_color]
+                for frame in candidates_a
+            ]
+            optic_candidates_b = [
+                [candidate for candidate in frame if candidate.is_optic_color]
+                for frame in candidates_b
+            ]
+            track_a, track_b = track_ball_stereo(
+                optic_candidates_a,
+                optic_candidates_b,
+                stereo_fps,
+                session.calibration,
+                max_temporal_shift_frames=max(10, int(round(0.10 * stereo_fps))),
+                # A small post-calibration phone shift showed up as a 13 px
+                # residual at the stationary yellow ball in a real upload.
+                # Restrict this tolerance to optic-colour candidates and keep
+                # the downstream 3D launch validation mandatory.
+                epipolar_limit_px=18.0,
+                require_physical_launch=True,
+            )
+            tracking_method = "optic-color stereo fallback"
+        if not track_a or not track_b:
             track_a, track_b = track_ball_stereo(
                 candidates_a, candidates_b,
-                0.5 * (capture_fps_a + capture_fps_b), session.calibration,
-                max_temporal_shift_frames=4,
+                stereo_fps, session.calibration,
+                # Impact localization is performed independently in each
+                # rendered slow-motion file. Phone edit ramps and manual trim
+                # boundaries can leave about 0.1 s of residual physical-time
+                # error even after applying the playback slowdown factors.
+                max_temporal_shift_frames=max(10, int(round(0.10 * stereo_fps))),
+                require_physical_launch=True,
             )
             tracking_method = "generic stereo fallback"
     else:
@@ -385,14 +464,36 @@ def run_real_processing(session: Session) -> ShotResult:
         log_progress(
             f"{tracking_method} tracking selected {len(track_a)} geometry-consistent paired detections; "
             f"residual temporal shift={local_sync_shift:+d} captured frames "
-            f"({1000.0 * local_sync_shift / max(capture_fps_a, 1.0):+.2f}ms)."
+            f"({1000.0 * local_sync_shift / max(stereo_fps, 1.0):+.2f}ms)."
         )
     else:
-        log_progress(
-            "Stereo-aware tracking found no joint hypothesis; trying independent tracks for diagnostics."
-        )
-        track_a = track_ball_2d(candidates_a, fps_a)
-        track_b = track_ball_2d(candidates_b, fps_b)
+        if session.calibration.calibration_version < 2:
+            log_progress(
+                "Full stereo selection is unavailable for this legacy calibration; "
+                "using independent compatibility tracks."
+            )
+            track_a = track_ball_2d(candidates_a, fps_a)
+            track_b = track_ball_2d(candidates_b, fps_b)
+        else:
+            log_progress(
+                "Stereo-aware tracking found no physically valid joint hypothesis."
+            )
+            return ShotResult(
+                metrics=ShotMetrics(),
+                measured_points_3d=[],
+                fitted_points_3d=[],
+                simulated_trajectory_3d=[],
+                warnings=[
+                    "No calibrated stereo ball-flight track could be resolved. Keep the ball visible "
+                    "in both cameras for at least six post-impact frames, use the correct playback "
+                    "slowdown for each phone, and recalibrate if either camera moved after calibration."
+                ],
+                is_placeholder=False,
+                notes=(
+                    "Candidate detections existed, but no joint path passed epipolar geometry, "
+                    "motion continuity, and physical-launch validation."
+                ),
+            )
 
     # Stereo selection already establishes correspondence. In rendered
     # slow-motion mode, build a shared physical timeline from each selected
@@ -402,29 +503,37 @@ def run_real_processing(session: Session) -> ShotResult:
     local_origin_b = track_b[0].frame_index if track_b else 0
     track_a = [
         TrackedPoint2D(
-            frame_index=pt.frame_index + tracking_start_a,
+            frame_index=(
+                source_index_map_a[pt.frame_index] + tracking_start_a
+                if slowmo_rendered else pt.frame_index + tracking_start_a
+            ),
             time_seconds=(
-                (pt.frame_index - local_origin_a) / capture_fps_a
+                (pt.frame_index - local_origin_a) / stereo_fps
                 if slowmo_rendered else
                 start_time_a + ((pt.frame_index + tracking_start_a) / fps_a)
             ),
             x_px=pt.x_px,
             y_px=pt.y_px,
             confidence=pt.confidence,
+            radius_px=pt.radius_px,
         )
         for pt in track_a
     ]
     track_b = [
         TrackedPoint2D(
-            frame_index=pt.frame_index + tracking_start_b,
+            frame_index=(
+                source_index_map_b[pt.frame_index] + tracking_start_b
+                if slowmo_rendered else pt.frame_index + tracking_start_b
+            ),
             time_seconds=(
-                (pt.frame_index - local_origin_b) / capture_fps_b
+                (pt.frame_index - local_origin_b) / stereo_fps
                 if slowmo_rendered else
                 start_time_b + ((pt.frame_index + tracking_start_b) / fps_b)
             ),
             x_px=pt.x_px,
             y_px=pt.y_px,
             confidence=pt.confidence,
+            radius_px=pt.radius_px,
         )
         for pt in track_b
     ]
@@ -458,6 +567,31 @@ def run_real_processing(session: Session) -> ShotResult:
             is_placeholder=False,
             notes="Real pipeline ran but failed to find/track the ball."
         )
+
+    # Estimate the marked ball's image-plane rotation while the original
+    # source-frame indices and per-detection radii are still available. Each
+    # view contributes one component of the eventual 3D angular velocity.
+    from golfie_cv.spin import estimate_camera_spin, reconstruct_stereo_spin
+
+    camera_spin_a = None
+    camera_spin_b = None
+    try:
+        camera_spin_a = estimate_camera_spin(cfr_path_a, track_a)
+        camera_spin_b = estimate_camera_spin(cfr_path_b, track_b)
+        for label, estimate in (("Camera A", camera_spin_a), ("Camera B", camera_spin_b)):
+            if estimate is None:
+                log_progress(f"{label} marked-ball spin could not be resolved reliably.")
+            else:
+                rpm = estimate.optical_axis_rad_s * 60.0 / (2.0 * np.pi)
+                log_progress(
+                    f"{label} marked-ball rotation: optical-axis component={rpm:.0f} rpm, "
+                    f"samples={estimate.sample_count}, median_features={estimate.median_features:.0f}, "
+                    f"confidence={estimate.confidence:.2f}."
+                )
+    except Exception as error:
+        log_progress(f"Marked-ball spin measurement failed safely: {type(error).__name__}: {error}")
+        camera_spin_a = None
+        camera_spin_b = None
 
     import os
     if os.getenv("GOLFIE_RENDER_BALL_REPLAYS", "").lower() in {"1", "true", "yes"}:
@@ -511,6 +645,7 @@ def run_real_processing(session: Session) -> ShotResult:
             x_px=pt.x_px,
             y_px=pt.y_px,
             confidence=pt.confidence,
+            radius_px=pt.radius_px,
         )
         for pt in track_b
     ]
@@ -684,6 +819,31 @@ def run_real_processing(session: Session) -> ShotResult:
             notes="Triangulation completed, but physics validation rejected the trajectory."
         )
 
+    stereo_spin = None
+    spin_vector = None
+    if camera_spin_a is not None and camera_spin_b is not None:
+        stereo_spin = reconstruct_stereo_spin(
+            camera_spin_a,
+            camera_spin_b,
+            session.calibration,
+            fit_res.initial_velocity_mps,
+        )
+    if stereo_spin is not None:
+        spin_vector = stereo_spin.spin_world_rad_s
+        fit_res.params.lift_enabled = True
+        log_progress(
+            "Stereo spin reconstruction: "
+            f"backspin={stereo_spin.backspin_rpm:.0f} rpm, "
+            f"sidespin={stereo_spin.sidespin_rpm:.0f} rpm, "
+            f"axis={stereo_spin.spin_axis_deg:.1f} deg, "
+            f"total={stereo_spin.total_spin_rpm:.0f} rpm, "
+            f"confidence={stereo_spin.confidence:.2f}."
+        )
+    else:
+        log_progress(
+            "Spin was not applied: both marked-ball views need stable surface-feature rotation."
+        )
+
     log_progress("Simulating full flight trajectory...", ProcessingStage.RENDERING)
 
     # 7. Simulate Full Flight (RK4 Solver)
@@ -692,6 +852,7 @@ def run_real_processing(session: Session) -> ShotResult:
         initial_position_m=fit_res.initial_position_m,
         initial_velocity_mps=fit_res.initial_velocity_mps,
         params=fit_res.params,
+        spin_rad_s=spin_vector,
         max_time_s=12.0,
         dt=0.001
     )
@@ -723,6 +884,7 @@ def run_real_processing(session: Session) -> ShotResult:
         initial_position_m=fit_res.initial_position_m,
         initial_velocity_mps=fit_res.initial_velocity_mps,
         params=fit_res.params,
+        spin_rad_s=spin_vector,
         max_time_s=float(measured_3d[-1].time_seconds - t0 + 0.01),
         dt=0.001
     )
@@ -760,11 +922,15 @@ def run_real_processing(session: Session) -> ShotResult:
         "Target line is inferred from the Camera A down-the-line orientation; "
         "use an explicitly aligned rig for simulator-grade left/right values."
     )
-    flight_notes = "Drag-only flight estimate to first ground contact; spin/lift are not measured by this MVP."
+    flight_notes = (
+        "Drag and measured marked-ball spin/Magnus lift estimate to first ground contact."
+        if stereo_spin is not None
+        else "Drag-only flight estimate; marked-ball spin was not resolved confidently in both views."
+    )
     total_notes = (
         f"Experimental fairway bounce/roll estimate from terminal angle "
-        f"({ground_run.landing_angle_deg:.1f} deg) and landing speed. Spin, turf firmness, "
-        "slope, and moisture are not measured."
+        f"({ground_run.landing_angle_deg:.1f} deg) and landing speed. Landing spin, turf firmness, "
+        "slope, and moisture are not modeled."
     )
     metrics = ShotMetrics(
         ball_speed_mps=MetricValue(
@@ -809,11 +975,52 @@ def run_real_processing(session: Session) -> ShotResult:
             confidence=flight_confidence,
             notes=f"{flight_notes} {direction_notes}",
         ),
+        backspin_rpm=(
+            MetricValue(
+                value=stereo_spin.backspin_rpm,
+                source=MetricSource.ESTIMATED,
+                confidence=stereo_spin.confidence,
+                notes=(
+                    "Estimated from marked-surface rotation in both cameras; "
+                    "rifle spin along the launch direction is constrained to zero."
+                ),
+            )
+            if stereo_spin is not None else MetricValue.unavailable(
+                "Markings were blurred, undersampled, or not visible in both camera tracks."
+            )
+        ),
+        sidespin_rpm=(
+            MetricValue(
+                value=stereo_spin.sidespin_rpm,
+                source=MetricSource.ESTIMATED,
+                confidence=stereo_spin.confidence,
+                notes="Positive is the world +Z spin component; see spin axis for combined tilt.",
+            )
+            if stereo_spin is not None else MetricValue.unavailable(
+                "Markings were blurred, undersampled, or not visible in both camera tracks."
+            )
+        ),
+        spin_axis_deg=(
+            MetricValue(
+                value=stereo_spin.spin_axis_deg,
+                source=MetricSource.ESTIMATED,
+                confidence=stereo_spin.confidence,
+                notes="atan2(sidespin, backspin) in the Golfie world frame.",
+            )
+            if stereo_spin is not None else MetricValue.unavailable(
+                "Markings were blurred, undersampled, or not visible in both camera tracks."
+            )
+        ),
     )
 
     warnings = []
     if fit_res.confidence < 0.5:
         warnings.append("Low physics fitting confidence; estimated trajectory might be inaccurate.")
+    if stereo_spin is None:
+        warnings.append(
+            "Spin was not measured reliably; the trajectory uses drag only. Keep the marked ball "
+            "large, sharp, and visible for at least three consecutive frames in both cameras."
+        )
 
     log_progress(f"Processing complete! Carry: {full_flight.carry_m:.2f} m.")
 
@@ -974,5 +1181,6 @@ def advance_through_placeholder_stages(session: Session) -> Session:
         session.shot = run_placeholder_processing(session)
 
     session.stage = ProcessingStage.DONE
+    session.processed_at = datetime.now(timezone.utc)
     session_store.save(session)
     return session

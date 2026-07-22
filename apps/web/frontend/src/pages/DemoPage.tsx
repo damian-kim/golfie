@@ -1,74 +1,119 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
-import type { TrajectoryPayload } from "../lib/types";
+import type { PreviousSessionSummary, TrajectoryPayload } from "../lib/types";
 import { ShotSimulatorView } from "../components/ShotSimulatorView";
 import "../styles/forms.css";
+import "../styles/demo.css";
+
+const SAMPLE_SESSION_ID = "sample";
+
+const processedAtFormatter = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+  timeZoneName: "short",
+});
+
+function formatProcessedAt(value: string): string {
+  return processedAtFormatter.format(new Date(value));
+}
 
 export function DemoPage() {
   const navigate = useNavigate();
   const [payload, setPayload] = useState<TrajectoryPayload | null>(null);
+  const [history, setHistory] = useState<PreviousSessionSummary[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState(SAMPLE_SESSION_ID);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const selectedSession = useMemo(
+    () => history.find((session) => session.session_id === selectedSessionId) ?? null,
+    [history, selectedSessionId]
+  );
+
   useEffect(() => {
-    api
-      .getSampleTrajectory()
-      .then(setPayload)
-      .catch((err) =>
+    Promise.all([api.getSampleTrajectory(), api.listPreviousSessions()])
+      .then(([samplePayload, previousSessions]) => {
+        setPayload(samplePayload);
+        setHistory(previousSessions);
+      })
+      .catch((err) => {
         setError(
           err instanceof ApiError
-            ? `${err.message} (run: python scripts/generate_sample_session.py)`
-            : "Failed to load demo trajectory."
-        )
-      );
+            ? err.message
+            : "Failed to load the Demo Range."
+        );
+      })
+      .finally(() => setIsLoading(false));
   }, []);
 
+  async function selectSession(sessionId: string) {
+    setSelectedSessionId(sessionId);
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const nextPayload =
+        sessionId === SAMPLE_SESSION_ID
+          ? await api.getSampleTrajectory()
+          : await api.getTrajectory(sessionId);
+      setPayload(nextPayload);
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Failed to load that simulation session."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  const title = selectedSession ? "Previous Shot Replay" : "Demo Driving Range";
+  const subtitle = selectedSession
+    ? `${selectedSession.upload_identifier} - Processed ${formatProcessedAt(selectedSession.processed_at)}`
+    : "Synthetic flight profile utilized for WebGL rendering validation.";
+
   return (
-    <div className="page page--full">
+    <div className="page page--full demo-page">
       <button
         type="button"
-        className="primary-button"
-        style={{
-          position: "absolute",
-          top: "20px",
-          left: "20px",
-          zIndex: 100,
-          fontSize: "12px",
-          padding: "6px 12px",
-          background: "rgba(10, 16, 13, 0.72)",
-          borderColor: "rgba(255, 255, 255, 0.15)",
-          borderRadius: "var(--radius-sm)",
-          cursor: "pointer",
-        }}
+        className="primary-button demo-back-button"
         onClick={() => navigate("/")}
       >
-        ← Back to Dashboard
+        &larr; Back to Dashboard
       </button>
-      {error && (
-        <div
-          className="error-banner"
-          style={{
-            position: "absolute",
-            top: "20px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 100,
-            border: "1px solid var(--color-danger)",
-            boxShadow: "0 4px 20px rgba(0, 0, 0, 0.5)",
-            borderRadius: "var(--radius-sm)",
-          }}
+
+      <section className="demo-session-picker" aria-label="Past simulation sessions">
+        <label htmlFor="demo-session-select">Past sessions</label>
+        <select
+          id="demo-session-select"
+          value={selectedSessionId}
+          onChange={(event) => void selectSession(event.target.value)}
+          disabled={isLoading}
         >
-          {error}
+          <option value={SAMPLE_SESSION_ID}>Sample simulation</option>
+          {history.map((session) => (
+            <option key={session.session_id} value={session.session_id}>
+              {formatProcessedAt(session.processed_at)} - {session.upload_identifier}
+            </option>
+          ))}
+        </select>
+        <div className="demo-session-picker__meta" title={selectedSession?.session_uid}>
+          {selectedSession ? `UID: ${selectedSession.session_uid}` : "Synthetic sample"}
         </div>
-      )}
+      </section>
+
+      {error && <div className="error-banner demo-error-banner">{error}</div>}
+      {isLoading && <div className="demo-loading">Loading simulation...</div>}
+
       {payload && (
-        <ShotSimulatorView
-          payload={payload}
-          title="Demo Driving Range"
-          subtitle="Synthetic flight profile utilized for WebGL rendering validation."
-        />
+        <ShotSimulatorView payload={payload} title={title} subtitle={subtitle} />
       )}
     </div>
   );
 }
-
