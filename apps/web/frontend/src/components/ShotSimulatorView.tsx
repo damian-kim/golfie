@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import type { TrajectoryPayload } from "../lib/types";
+import type { SpinPreview, TrajectoryPayload } from "../lib/types";
 import { MetricCard } from "./MetricCard";
 import { formatMetric } from "../lib/units";
 import { DrivingRangeScene } from "../scenes/DrivingRangeScene";
-import { API_BASE_URL } from "../lib/api";
+import { API_BASE_URL, ApiError, api } from "../lib/api";
 import { SwingReplayModal } from "./SwingReplayModal";
 import "./ShotSimulatorView.css";
 
@@ -22,6 +22,15 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
   const [outlinesRendering, setOutlinesRendering] = useState(false);
   const [outlineRefreshToken, setOutlineRefreshToken] = useState(0);
   const [playToken, setPlayToken] = useState(0);
+  const [backspinInput, setBackspinInput] = useState(
+    String(Math.round(payload.metrics.backspin_rpm.value ?? 2500))
+  );
+  const [sidespinInput, setSidespinInput] = useState(
+    String(Math.round(payload.metrics.sidespin_rpm.value ?? 0))
+  );
+  const [spinPreview, setSpinPreview] = useState<SpinPreview | null>(null);
+  const [spinPreviewBusy, setSpinPreviewBusy] = useState(false);
+  const [spinPreviewError, setSpinPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     if (payload.session_id === "sample") return;
@@ -92,13 +101,34 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
     setPlayToken((t) => t + 1);
   };
 
+  const handleSpinPreview = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const backspin = Number(backspinInput);
+    const sidespin = Number(sidespinInput);
+    if (!Number.isFinite(backspin) || !Number.isFinite(sidespin)) {
+      setSpinPreviewError("Enter numeric backspin and sidespin values.");
+      return;
+    }
+    setSpinPreviewBusy(true);
+    setSpinPreviewError(null);
+    try {
+      const preview = await api.previewSpin(payload.session_id, backspin, sidespin);
+      setSpinPreview(preview);
+      setPlayToken((token) => token + 1);
+    } catch (error) {
+      setSpinPreviewError(error instanceof ApiError ? error.message : "Could not calculate the spin preview.");
+    } finally {
+      setSpinPreviewBusy(false);
+    }
+  };
+
   return (
     <div className="shot-simulator-hud">
       {/* Immersive Full-Screen Canvas behind the HUD overlay */}
       <div className="shot-simulator-hud__canvas-container">
         <DrivingRangeScene
           key={payload.session_id}
-          simulated={payload.simulated_trajectory}
+          simulated={spinPreview?.simulated_trajectory ?? payload.simulated_trajectory}
           measured={payload.measured_points}
           fitted={payload.fitted_points}
           playToken={playToken}
@@ -203,6 +233,49 @@ export function ShotSimulatorView({ payload, title, subtitle }: ShotSimulatorVie
           <MetricCard label="Sidespin" metric={metrics.sidespin_rpm} unit="rpm" format={formatMetric} />
           <MetricCard label="Spin axis" metric={metrics.spin_axis_deg} unit="deg" format={formatMetric} />
         </div>
+
+        {payload.session_id !== "sample" && (
+          <form className="hud-spin-editor" onSubmit={handleSpinPreview}>
+            <div className="hud-section__title">Manual Spin Preview</div>
+            <div className="hud-spin-editor__inputs">
+              <label>
+                Backspin <span>rpm</span>
+                <input
+                  type="number"
+                  min={-15000}
+                  max={15000}
+                  step={100}
+                  value={backspinInput}
+                  onChange={(event) => setBackspinInput(event.target.value)}
+                />
+              </label>
+              <label>
+                Sidespin <span>rpm</span>
+                <input
+                  type="number"
+                  min={-15000}
+                  max={15000}
+                  step={100}
+                  value={sidespinInput}
+                  onChange={(event) => setSidespinInput(event.target.value)}
+                />
+              </label>
+            </div>
+            <button type="submit" disabled={spinPreviewBusy}>
+              {spinPreviewBusy ? "Calculating..." : "Apply to trajectory"}
+            </button>
+            {spinPreview && (
+              <div className="hud-spin-editor__result mono">
+                Carry {(spinPreview.carry_m * 1.09361).toFixed(1)} yd · Total {(spinPreview.total_m * 1.09361).toFixed(1)} yd · Axis {spinPreview.spin_axis_deg.toFixed(1)}°
+                <button type="button" onClick={() => { setSpinPreview(null); setPlayToken((token) => token + 1); }}>
+                  Reset
+                </button>
+              </div>
+            )}
+            {spinPreviewError && <p className="hud-spin-editor__error">{spinPreviewError}</p>}
+            <small>Hypothetical Magnus-lift preview; this does not overwrite the measured session.</small>
+          </form>
+        )}
       </div>
 
       {/* Visual Telemetry Radar Widget */}

@@ -161,6 +161,18 @@ export interface TrajectoryPayload {
   simulated_trajectory: ScenePoint[];
 }
 
+export interface SpinPreview {
+  backspin_rpm: number;
+  sidespin_rpm: number;
+  spin_axis_deg: number;
+  carry_m: number;
+  total_m: number;
+  apex_m: number;
+  side_deviation_m: number;
+  simulated_trajectory: ScenePoint[];
+  notes: string;
+}
+
 export interface TrimJobResult {
   trim_id: string;
   created_at: string;

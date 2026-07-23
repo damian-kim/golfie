@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
@@ -42,7 +44,7 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 _processing_locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
 _outline_jobs_lock = threading.Lock()
 _outline_jobs: dict[str, dict] = {}
-OUTLINE_RENDER_VERSION = 4
+OUTLINE_RENDER_VERSION = 5
 
 
 def _outline_artifacts_current(session_dir: Path) -> bool:
@@ -74,6 +76,11 @@ class PreviousSessionSummary(BaseModel):
     camera_b_filename: str
     upload_identifier: str
     is_placeholder: bool
+
+
+class SpinPreviewRequest(BaseModel):
+    backspin_rpm: float
+    sidespin_rpm: float = 0.0
 
 
 def _get_session_or_404(session_id: str) -> Session:
@@ -137,6 +144,10 @@ def _outline_worker(session_id: str) -> None:
                 inference_size=320,
                 comparison_output_path=comparison_temporary,
                 person_only=True,
+                pose_analysis_output_path=session_dir / f"{camera_name}_swing_analysis.json",
+                impact_frame=impact_frame,
+                camera_role="down_the_line" if camera_name == "camera_a" else "face_on",
+                handedness=session.handedness or "right",
             )
             temporary_path.replace(final_path)
             comparison_temporary.replace(comparison_path)
@@ -473,6 +484,77 @@ def get_trajectory(session_id: str) -> dict:
     return build_trajectory_payload(session.session_id, session.shot, club=session.club)
 
 
+@router.post("/{session_id}/trajectory/spin-preview")
+def preview_trajectory_with_manual_spin(
+    session_id: str, body: SpinPreviewRequest
+) -> dict:
+    """Re-simulate a shot with hypothetical spin without mutating the session."""
+    session = _get_session_or_404(session_id)
+    if session.shot is None:
+        raise HTTPException(status_code=404, detail="This session has not been processed yet.")
+    if abs(body.backspin_rpm) > 15000 or abs(body.sidespin_rpm) > 15000:
+        raise HTTPException(status_code=400, detail="Spin must be between -15,000 and 15,000 rpm.")
+
+    metrics = session.shot.metrics
+    launch_values = (
+        metrics.ball_speed_mps.value,
+        metrics.launch_angle_deg.value,
+        metrics.horizontal_launch_deg.value,
+    )
+    if any(value is None for value in launch_values):
+        raise HTTPException(
+            status_code=400,
+            detail="Ball speed and launch angles are required for a spin preview.",
+        )
+
+    from golfie_physics.models import FlightParams, estimate_ground_run
+    from golfie_physics.models.projectile import simulate_from_launch_conditions
+
+    radians_per_second = 2.0 * np.pi / 60.0
+    spin = np.array(
+        [
+            0.0,
+            -body.backspin_rpm * radians_per_second,
+            body.sidespin_rpm * radians_per_second,
+        ],
+        dtype=float,
+    )
+    flight = simulate_from_launch_conditions(
+        float(launch_values[0]),
+        float(launch_values[1]),
+        float(launch_values[2]),
+        params=FlightParams(drag_enabled=True, lift_enabled=True),
+        spin_rad_s=spin,
+    )
+    ground = estimate_ground_run(flight)
+    flight_samples = flight.samples
+    if len(flight_samples) > 400:
+        indices = np.linspace(0, len(flight_samples) - 1, 400).round().astype(int)
+        flight_samples = [flight_samples[int(index)] for index in indices]
+    samples = [*flight_samples, *ground.samples]
+
+    return {
+        "backspin_rpm": body.backspin_rpm,
+        "sidespin_rpm": body.sidespin_rpm,
+        "spin_axis_deg": float(np.degrees(np.arctan2(body.sidespin_rpm, body.backspin_rpm))),
+        "carry_m": flight.carry_m,
+        "total_m": flight.carry_m + ground.run_m,
+        "apex_m": flight.apex_m,
+        "side_deviation_m": flight.side_deviation_m,
+        "simulated_trajectory": [
+            {
+                "t": float(sample.time_s),
+                "x": float(sample.position_m[0]),
+                "y": float(sample.position_m[2]),
+                "z": float(-sample.position_m[1]),
+                "confidence": 0.5,
+            }
+            for sample in samples
+        ],
+        "notes": "Hypothetical manual-spin preview using Golfie's experimental Magnus model; the saved shot is unchanged.",
+    }
+
+
 @router.get("/{session_id}/video/{camera_id}/stripped")
 def get_stripped_video(session_id: str, camera_id: str):
     from fastapi.responses import FileResponse
@@ -577,6 +659,49 @@ def get_artifacts(session_id: str) -> dict:
         "ball_selection_replays": {
             "camera_a": exists("camera_a_ball_replay.mp4"),
             "camera_b": exists("camera_b_ball_replay.mp4"),
+        },
+        "swing_analysis_ready": exists("camera_a_swing_analysis.json")
+        and exists("camera_b_swing_analysis.json"),
+    }
+
+
+@router.get("/{session_id}/artifacts/swing-analysis")
+def get_swing_analysis(session_id: str) -> dict:
+    """Return conservative pose-derived coaching prompts for the comparison UI."""
+    _get_session_or_404(session_id)
+    session_dir = session_store.session_dir(session_id)
+    analyses = []
+    for camera_name in ("camera_a", "camera_b"):
+        path = session_dir / f"{camera_name}_swing_analysis.json"
+        if path.exists():
+            try:
+                analyses.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                continue
+    if not analyses:
+        raise HTTPException(
+            status_code=404,
+            detail="Swing pose analysis is not ready. Generate the swing comparison first.",
+        )
+
+    best_by_trait = {}
+    for analysis in analyses:
+        for finding in analysis.get("findings", []):
+            trait = finding.get("trait", "Review prompt")
+            if finding.get("confidence", 0.0) > best_by_trait.get(trait, {}).get("confidence", -1.0):
+                best_by_trait[trait] = finding
+    return {
+        "findings": list(best_by_trait.values()),
+        "camera_analyses": analyses,
+        "limitations": [
+            "Golfie uses 2D pose landmarks, not force plates or calibrated 3D body motion capture.",
+            "Bodies and effective swings differ; change only a cue that improves contact or ball flight.",
+        ],
+        "sources": {
+            "tpi_chicken_wing": "https://www.mytpi.com/improve-my-game/swing-characteristics/chicken-winging",
+            "pga_hip_turn": "https://www.pga.com/story/getting-hip-can-help-your-game",
+            "pga_swing_center": "https://www.pga.com/story/golf-dictionary-glossary-and-golf-terms",
+            "biomechanics_review": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9227529/",
         },
     }
 

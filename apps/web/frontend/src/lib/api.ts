@@ -3,6 +3,7 @@ import type {
   PreviousSessionSummary,
   Session,
   ShotResult,
+  SpinPreview,
   TrajectoryPayload,
   TrimJobResult,
 } from "./types";
@@ -135,6 +136,14 @@ export const api = {
 
   getTrajectory(sessionId: string): Promise<TrajectoryPayload> {
     return request<TrajectoryPayload>(`/sessions/${sessionId}/trajectory`);
+  },
+
+  previewSpin(sessionId: string, backspinRpm: number, sidespinRpm: number): Promise<SpinPreview> {
+    return request<SpinPreview>(`/sessions/${sessionId}/trajectory/spin-preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backspin_rpm: backspinRpm, sidespin_rpm: sidespinRpm }),
+    });
   },
 
   getDebugOverlays(sessionId: string): Promise<{ overlays: unknown[]; notes: string }> {

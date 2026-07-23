@@ -110,6 +110,38 @@ def test_get_unknown_session_returns_404(client):
     assert response.status_code == 404
 
 
+def test_manual_spin_preview_changes_trajectory_without_mutating_session(client):
+    import golfie_api.routers.sessions as sessions_module
+    from golfie_core.schemas import MetricSource, MetricValue, ShotMetrics, ShotResult
+
+    session_id = client.post("/sessions", json={"club": "driver"}).json()["session_id"]
+    stored = sessions_module.session_store.load(session_id)
+    stored.shot = ShotResult(
+        is_placeholder=False,
+        metrics=ShotMetrics(
+            ball_speed_mps=MetricValue(value=55.0, source=MetricSource.ESTIMATED, confidence=0.7),
+            launch_angle_deg=MetricValue(value=14.0, source=MetricSource.ESTIMATED, confidence=0.7),
+            horizontal_launch_deg=MetricValue(value=0.0, source=MetricSource.ESTIMATED, confidence=0.7),
+        ),
+    )
+    sessions_module.session_store.save(stored)
+
+    no_spin = client.post(
+        f"/sessions/{session_id}/trajectory/spin-preview",
+        json={"backspin_rpm": 0, "sidespin_rpm": 0},
+    )
+    backspin = client.post(
+        f"/sessions/{session_id}/trajectory/spin-preview",
+        json={"backspin_rpm": 3000, "sidespin_rpm": 0},
+    )
+
+    assert no_spin.status_code == 200
+    assert backspin.status_code == 200
+    assert backspin.json()["carry_m"] > no_spin.json()["carry_m"]
+    assert len(backspin.json()["simulated_trajectory"]) > 50
+    assert sessions_module.session_store.load(session_id).shot.metrics.backspin_rpm.value is None
+
+
 def test_process_without_both_cameras_returns_400(client):
     session = client.post("/sessions", json={}).json()
     response = client.post(f"/sessions/{session['session_id']}/process")
@@ -448,4 +480,3 @@ def test_slow_motion_calibration_pairing_uses_common_physical_time():
     assert idx_b == 390
     assert (idx_a - 300) / (30.0 * 4.0) == pytest.approx(1.0)
     assert (idx_b - 150) / (30.0 * 8.0) == pytest.approx(1.0)
-

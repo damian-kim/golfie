@@ -160,6 +160,60 @@
   color: #ffffff;
 }
 
+.hud-spin-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(76, 194, 115, 0.2);
+  border-radius: var(--radius-sm);
+  background: rgba(4, 12, 8, 0.35);
+}
+
+.hud-spin-editor__inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.hud-spin-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-muted);
+  font: 9px var(--font-mono);
+  text-transform: uppercase;
+}
+
+.hud-spin-editor label span { opacity: 0.65; }
+.hud-spin-editor input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 4px;
+  background: rgba(0,0,0,.34);
+  color: #fff;
+  padding: 6px;
+  font: 11px var(--font-mono);
+}
+
+.hud-spin-editor > button,
+.hud-spin-editor__result button {
+  border: 1px solid rgba(76,194,115,.45);
+  border-radius: 4px;
+  background: rgba(76,194,115,.13);
+  color: #fff;
+  padding: 6px 8px;
+  cursor: pointer;
+  font: 700 9px var(--font-mono);
+  text-transform: uppercase;
+}
+
+.hud-spin-editor__result { color: #fff; font-size: 9px; line-height: 1.5; }
+.hud-spin-editor__result button { margin-left: 7px; padding: 3px 5px; }
+.hud-spin-editor__error { margin: 0; color: var(--color-danger); font-size: 10px; }
+.hud-spin-editor small { color: var(--color-muted); font-size: 8.5px; line-height: 1.35; }
+
 .shot-simulator-hud__metrics-scroll {
   display: flex;
   flex-direction: column;

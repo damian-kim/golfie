@@ -112,7 +112,7 @@ export function DemoPage() {
       {isLoading && <div className="demo-loading">Loading simulation...</div>}
 
       {payload && (
-        <ShotSimulatorView payload={payload} title={title} subtitle={subtitle} />
+        <ShotSimulatorView key={payload.session_id} payload={payload} title={title} subtitle={subtitle} />
       )}
     </div>
   );

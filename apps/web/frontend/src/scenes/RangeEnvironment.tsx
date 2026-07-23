@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { Html, useTexture } from "@react-three/drei";
+import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { metersToYards } from "../lib/units";
 import { rangeGroundHeight, type SceneBounds } from "./sceneMath";
@@ -262,6 +263,7 @@ function TargetFlag({ yards, x, z }: { yards: number; x: number; z: number }) {
 }
 
 export function RangeEnvironment({ bounds }: RangeEnvironmentProps) {
+  const { gl } = useThree();
   const length = Math.max(330, bounds.maxDownrangeM * 1.32 + 35);
   const width = Math.max(145, bounds.maxLateralAbsM * 6 + 95);
   const terrainStart = -700;
@@ -275,12 +277,15 @@ export function RangeEnvironment({ bounds }: RangeEnvironmentProps) {
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
       texture.repeat.set(repeatX, repeatY);
       texture.colorSpace = THREE.SRGBColorSpace;
-      texture.anisotropy = 8;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.generateMipmaps = true;
+      texture.anisotropy = Math.min(16, gl.capabilities.getMaxAnisotropy());
       texture.needsUpdate = true;
       return texture;
     };
     return { rough: prepare(96, 82), fairway: prepare(12, 3.6), tee: prepare(2.4, 1.5) };
-  }, [grassSource]);
+  }, [gl, grassSource]);
   const ground = useMemo(
     () => makeGround(terrainLength, terrainWidth, terrainStart),
     [terrainLength, terrainStart, terrainWidth],
@@ -312,6 +317,7 @@ export function RangeEnvironment({ bounds }: RangeEnvironmentProps) {
         dispose={null}
       >
         <meshStandardMaterial
+          dispose={null}
           map={materials.rough}
           bumpMap={materials.rough}
           bumpScale={0.075}
@@ -322,12 +328,12 @@ export function RangeEnvironment({ bounds }: RangeEnvironmentProps) {
         />
       </mesh>
       <mesh name="range-fairway" geometry={fairway} receiveShadow dispose={null}>
-        <meshStandardMaterial map={materials.fairway} bumpMap={materials.fairway} bumpScale={0.045} color="#d3e2c8" roughness={0.91} />
+        <meshStandardMaterial dispose={null} map={materials.fairway} bumpMap={materials.fairway} bumpScale={0.045} color="#d3e2c8" roughness={0.91} />
       </mesh>
 
       <mesh position={[-1.5, 0.045, 0]} receiveShadow>
         <boxGeometry args={[9.5, 0.09, 9]} />
-        <meshStandardMaterial map={materials.tee} bumpMap={materials.tee} bumpScale={0.035} color="#dce8d3" roughness={0.9} />
+        <meshStandardMaterial dispose={null} map={materials.tee} bumpMap={materials.tee} bumpScale={0.035} color="#dce8d3" roughness={0.9} />
       </mesh>
       <mesh position={[-1, 0.14, -2.7]} castShadow><sphereGeometry args={[0.12, 20, 14]} /><meshStandardMaterial color="#f3f0e6" /></mesh>
       <mesh position={[-1, 0.14, 2.7]} castShadow><sphereGeometry args={[0.12, 20, 14]} /><meshStandardMaterial color="#f3f0e6" /></mesh>

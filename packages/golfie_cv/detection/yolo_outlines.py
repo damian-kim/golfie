@@ -19,6 +19,10 @@ def render_stripped_outlines_video(
     inference_size: int = 384,
     comparison_output_path: Path | None = None,
     person_only: bool = True,
+    pose_analysis_output_path: Path | None = None,
+    impact_frame: int | None = None,
+    camera_role: str = "unknown",
+    handedness: str = "right",
 ) -> None:
     """Run YOLOv8 segmentation on the relevant frame range of the video.
     
@@ -146,6 +150,7 @@ def render_stripped_outlines_video(
                 draw_glowing_circle(img, joint, 3, balance)
 
     frame_mappings = []
+    pose_observations = []
 
     with tempfile.TemporaryDirectory() as tmpdir:
         temp_avi = Path(tmpdir) / "temp_outlines.avi"
@@ -209,6 +214,25 @@ def render_stripped_outlines_video(
                         classes=[0],
                         max_det=1,
                     )
+                    if (
+                        pose_results
+                        and pose_results[0].keypoints is not None
+                        and pose_results[0].keypoints.xy is not None
+                        and len(pose_results[0].keypoints.xy) > 0
+                    ):
+                        keypoints = pose_results[0].keypoints
+                        xy = keypoints.xy[0].detach().cpu().numpy()
+                        confidence = (
+                            keypoints.conf[0].detach().cpu().numpy()
+                            if keypoints.conf is not None
+                            else np.ones(len(xy), dtype=float)
+                        )
+                        pose_observations.append({
+                            "frame_index": frame_idx,
+                            "timestamp_seconds": float(frame_idx / fps),
+                            "xy": xy.astype(float).tolist(),
+                            "confidence": confidence.astype(float).tolist(),
+                        })
                 except Exception as exc:
                     print(f"Golfie outline warning: pose detection failed at frame {frame_idx}: {exc}")
             canvas = np.zeros_like(frame)
@@ -397,6 +421,20 @@ def render_stripped_outlines_video(
                 "start_frame": start_frame,
                 "mappings": frame_mappings
             }, f, indent=2)
+
+        if pose_analysis_output_path is not None:
+            from golfie_cv.detection.swing_analysis import analyze_pose_sequence
+
+            analysis = analyze_pose_sequence(
+                pose_observations,
+                camera_role=camera_role,
+                impact_frame=int(impact_frame if impact_frame is not None else start_frame),
+                fps=float(fps),
+                handedness=handedness,
+            )
+            analysis_path = Path(pose_analysis_output_path)
+            analysis_path.parent.mkdir(parents=True, exist_ok=True)
+            analysis_path.write_text(json.dumps(analysis, indent=2), encoding="utf-8")
 
         # Transcode AVI to browser-ready H.264 MP4
         ffmpeg_bin = _find_ffmpeg_fallback() or "ffmpeg"
