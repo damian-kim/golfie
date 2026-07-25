@@ -8,7 +8,7 @@ triangulation, including distortion and calibrated image size.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 from golfie_core.schemas import CalibrationResult, CameraIntrinsics, CoordinateSystem
 
@@ -16,7 +16,7 @@ from golfie_core.schemas import CalibrationResult, CameraIntrinsics, CoordinateS
 import cv2
 import numpy as np
 
-MIN_CHARUCO_CORNERS = 6
+MIN_CHARUCO_CORNERS = 4
 
 
 def _solve_stable_phone_intrinsics(obj_points, img_points, image_size):
@@ -59,6 +59,7 @@ def calibrate_intrinsics(
     square_length: float = 0.04,          # in meters
     marker_length: float = 0.03,          # in meters (for charuco)
     dictionary_id: int = cv2.aruco.DICT_6X6_250,
+    progress_callback: Callable[[float, str], None] | None = None,
 ) -> CameraIntrinsics:
     """Estimate one camera's intrinsics from checkerboard/ChArUco frames.
 
@@ -66,6 +67,12 @@ def calibrate_intrinsics(
     """
     if not calibration_images:
         raise ValueError("No calibration images provided.")
+
+    def report(fraction: float, message: str) -> None:
+        if progress_callback is not None:
+            progress_callback(max(0.0, min(1.0, fraction)), message)
+
+    report(0.01, f"Preparing {len(calibration_images)} selected frames.")
 
     obj_points = []  # 3d points in real world space
     img_points = []  # 2d points in image plane
@@ -117,8 +124,15 @@ def calibrate_intrinsics(
 
         detected_dict = None
         detected_grid_size = None
+        detector_attempts = len(unique_dicts) * len(grid_sizes_to_try)
+        detector_attempt = 0
         for dict_id in unique_dicts:
             for g_size in grid_sizes_to_try:
+                detector_attempt += 1
+                report(
+                    0.02 + 0.23 * detector_attempt / detector_attempts,
+                    f"Testing board dictionary/layout {detector_attempt}/{detector_attempts}.",
+                )
                 dictionary = cv2.aruco.getPredefinedDictionary(dict_id)
                 board = cv2.aruco.CharucoBoard(g_size, square_length, marker_length, dictionary)
                 detector = cv2.aruco.CharucoDetector(board, detectorParams=detector_params)
@@ -137,6 +151,11 @@ def calibrate_intrinsics(
                 if any_detected:
                     detected_dict = dict_id
                     detected_grid_size = g_size
+                    report(
+                        0.25,
+                        f"Board layout identified as {g_size[0]}x{g_size[1]} "
+                        f"(dictionary {dict_id}); partial views are accepted.",
+                    )
                     break
             if detected_dict is not None:
                 break
@@ -152,7 +171,8 @@ def calibrate_intrinsics(
     else:
         raise ValueError(f"Unknown board type: {board_type}")
 
-    for img_path in calibration_images:
+    usable_views = 0
+    for image_index, img_path in enumerate(calibration_images):
         img = cv2.imread(str(img_path))
         if img is None:
             continue
@@ -169,6 +189,7 @@ def calibrate_intrinsics(
                 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
                 corners_refined = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
                 img_points.append(corners_refined)
+                usable_views += 1
         elif board_type == "charuco":
             charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
             num_corners = len(charuco_corners) if charuco_corners is not None else 0
@@ -182,6 +203,14 @@ def calibrate_intrinsics(
                 objp = board_corners[charuco_ids.flatten()]
                 obj_points.append(objp)
                 img_points.append(charuco_corners)
+                usable_views += 1
+
+        if (image_index + 1) % 4 == 0 or image_index + 1 == len(calibration_images):
+            report(
+                0.25 + 0.45 * (image_index + 1) / len(calibration_images),
+                f"Detected {usable_views} usable views after checking "
+                f"{image_index + 1}/{len(calibration_images)} frames.",
+            )
 
     if not obj_points:
         raise ValueError(f"Could not detect any calibration board patterns in the provided images (board_type={board_type}).")
@@ -196,6 +225,7 @@ def calibrate_intrinsics(
     img_points = [np.array(p, dtype=np.float32) for p in img_points]
 
     try:
+        report(0.75, f"Solving lens model from {len(obj_points)} usable views.")
         ret, mtx, dist, rvecs, tvecs = _solve_stable_phone_intrinsics(
             obj_points, img_points, image_size
         )
@@ -215,6 +245,10 @@ def calibrate_intrinsics(
             cutoff = max(1.5, median + 3.0 * max(mad, 0.05))
             keep = [i for i, err in enumerate(view_errors) if err <= cutoff]
             if 5 <= len(keep) < len(obj_points):
+                report(
+                    0.90,
+                    f"Refitting after rejecting {len(obj_points) - len(keep)} high-error views.",
+                )
                 kept_obj = [obj_points[i] for i in keep]
                 kept_img = [img_points[i] for i in keep]
                 ret, mtx, dist, rvecs, tvecs = _solve_stable_phone_intrinsics(
@@ -230,7 +264,7 @@ def calibrate_intrinsics(
     distortion = np.zeros(5, dtype=np.float64)
     flattened_distortion = np.asarray(dist, dtype=np.float64).reshape(-1)
     distortion[: min(5, len(flattened_distortion))] = flattened_distortion[:5]
-    return CameraIntrinsics(
+    result = CameraIntrinsics(
         fx=float(mtx[0, 0]),
         fy=float(mtx[1, 1]),
         cx=float(mtx[0, 2]),
@@ -240,6 +274,8 @@ def calibrate_intrinsics(
         image_height=image_size[1],
         reprojection_error_px=float(ret),
     )
+    report(1.0, f"Lens solve complete: RMS={result.reprojection_error_px:.3f}px.")
+    return result
 
 
 def calibrate_stereo(

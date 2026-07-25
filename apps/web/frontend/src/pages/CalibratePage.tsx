@@ -172,6 +172,9 @@ export function CalibratePage() {
   const [logs, setLogs] = useState<string[]>([]);
   const [progressPercent, setProgressPercent] = useState(0);
   const [progressMessage, setProgressMessage] = useState("Preparing calibration...");
+  const [progressStage, setProgressStage] = useState("idle");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const calibrationStartedAtRef = useRef<number | null>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
   // Poll calibration progress logs while busy
@@ -189,6 +192,7 @@ export function CalibratePage() {
           if (status.running) {
             setProgressPercent(Math.min(99, Math.max(1, status.progress)));
             setProgressMessage(status.message);
+            setProgressStage(status.stage);
           }
         })
         .catch(() => {});
@@ -196,6 +200,18 @@ export function CalibratePage() {
 
     poll();
     const interval = setInterval(poll, 500);
+    return () => clearInterval(interval);
+  }, [busy]);
+
+  useEffect(() => {
+    if (!busy) return;
+    const updateElapsed = () => {
+      if (calibrationStartedAtRef.current !== null) {
+        setElapsedSeconds(Math.floor((Date.now() - calibrationStartedAtRef.current) / 1000));
+      }
+    };
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 1000);
     return () => clearInterval(interval);
   }, [busy]);
 
@@ -310,6 +326,9 @@ export function CalibratePage() {
     setLogs([]);
     setProgressPercent(1);
     setProgressMessage("Uploading calibration videos...");
+    setProgressStage("uploading");
+    setElapsedSeconds(0);
+    calibrationStartedAtRef.current = Date.now();
     setBusy(true);
     setError(null);
     setResult(null);
@@ -331,6 +350,7 @@ export function CalibratePage() {
       );
       setProgressPercent(100);
       setProgressMessage("Calibration complete.");
+      setProgressStage("complete");
       setResult(res);
     } catch (err) {
       if (err instanceof ApiError && err.status === 0) {
@@ -756,7 +776,7 @@ export function CalibratePage() {
               fontWeight: 600
             }}>
               <span>Calibration Progress</span>
-              <span>{progressPercent}%</span>
+              <span>{progressPercent}% · {elapsedSeconds}s</span>
             </div>
             <div style={{
               height: "8px",
@@ -776,8 +796,11 @@ export function CalibratePage() {
                 borderRadius: "4px"
               }} />
             </div>
-            <div style={{ marginTop: 8, fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)" }}>
-              {progressMessage}
+            <div style={{ marginTop: 8, fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)", display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ color: "var(--color-turf-bright)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                {progressStage.replaceAll("_", " ")}
+              </span>
+              <span>{progressMessage}</span>
             </div>
           </div>
 
@@ -830,7 +853,7 @@ export function CalibratePage() {
           </div>
           
           <span style={{ fontSize: "12px", color: "var(--color-muted)" }} className="pulse-glowing">
-            Please wait while the rig calibration computes. This may take up to a minute...
+            Partial board views with at least four detected corners are accepted. The live stage and counters above show what the solver is doing.
           </span>
         </div>
       )}

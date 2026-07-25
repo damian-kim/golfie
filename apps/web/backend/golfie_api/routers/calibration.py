@@ -3,13 +3,14 @@ from __future__ import annotations
 import shutil
 import tempfile
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Sequence
+from typing import NamedTuple, Sequence
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from golfie_core.schemas import CalibrationResult, CameraIntrinsics
 from golfie_cv.calibration import calibrate_intrinsics, calibrate_stereo
@@ -19,12 +20,234 @@ router = APIRouter(prefix="/calibration", tags=["calibration"])
 
 ACTIVE_CALIBRATION_PATH = CALIBRATION_DIR / "active_calibration.json"
 _status_lock = threading.Lock()
+_calibration_run_lock = threading.Lock()
 _calibration_status = {
     "running": False,
     "progress": 0,
     "stage": "idle",
     "message": "No calibration is running.",
 }
+
+MIN_CALIBRATION_CORNERS = 4
+CALIBRATION_SCAN_MULTIPLIER = 2
+BOARD_SCAN_MAX_WIDTH = 800
+
+
+class BoardDetectionHint(NamedTuple):
+    dictionary_id: int | None
+    grid_size: tuple[int, int]
+    description: str
+
+
+def _exclusive_calibration_run():
+    """Reject duplicate uploads instead of running CPU-heavy solves together."""
+    if not _calibration_run_lock.acquire(blocking=False):
+        raise HTTPException(
+            status_code=409,
+            detail="A camera calibration is already running. Wait for it to finish before retrying.",
+        )
+    try:
+        yield
+    finally:
+        _calibration_run_lock.release()
+
+
+def _evenly_spaced_items(items: Sequence, limit: int) -> list:
+    """Keep ``limit`` items while retaining the first/last available poses."""
+    values = list(items)
+    if limit <= 0:
+        return []
+    if len(values) <= limit:
+        return values
+    if limit == 1:
+        return [values[len(values) // 2]]
+    indices = [
+        round(position * (len(values) - 1) / (limit - 1))
+        for position in range(limit)
+    ]
+    return [values[index] for index in indices]
+
+
+def _charuco_detector_candidates(
+    grid_size: tuple[int, int],
+    square_length: float,
+    marker_length: float,
+    dictionary_ids: Sequence[int] | None = None,
+) -> list[tuple[str, cv2.aruco.CharucoDetector]]:
+    """Build the same dictionary/orientation fallbacks used by calibration."""
+    fallback_dictionary_ids = [
+        cv2.aruco.DICT_4X4_50,
+        cv2.aruco.DICT_6X6_250,
+        cv2.aruco.DICT_4X4_100,
+        cv2.aruco.DICT_4X4_250,
+        cv2.aruco.DICT_4X4_1000,
+        cv2.aruco.DICT_5X5_50,
+        cv2.aruco.DICT_5X5_100,
+        cv2.aruco.DICT_5X5_250,
+        cv2.aruco.DICT_5X5_1000,
+        cv2.aruco.DICT_6X6_50,
+        cv2.aruco.DICT_6X6_100,
+        cv2.aruco.DICT_6X6_1000,
+        cv2.aruco.DICT_7X7_50,
+        cv2.aruco.DICT_7X7_100,
+        cv2.aruco.DICT_7X7_250,
+        cv2.aruco.DICT_7X7_1000,
+        cv2.aruco.DICT_ARUCO_ORIGINAL,
+    ]
+    dictionary_ids = list(dictionary_ids or fallback_dictionary_ids)
+    orientations = [grid_size]
+    if grid_size[0] != grid_size[1]:
+        orientations.append((grid_size[1], grid_size[0]))
+    detector_params = cv2.aruco.DetectorParameters()
+    detector_params.minMarkerPerimeterRate = 0.005
+    detector_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+
+    candidates = []
+    for dictionary_id in dict.fromkeys(dictionary_ids):
+        dictionary = cv2.aruco.getPredefinedDictionary(dictionary_id)
+        for orientation in orientations:
+            board = cv2.aruco.CharucoBoard(
+                orientation, square_length, marker_length, dictionary
+            )
+            candidates.append(
+                (
+                    f"dictionary={dictionary_id}, grid={orientation[0]}x{orientation[1]}",
+                    cv2.aruco.CharucoDetector(
+                        board, detectorParams=detector_params
+                    ),
+                )
+            )
+    return candidates
+
+
+def _find_charuco_dictionary(
+    gray_a: np.ndarray, gray_b: np.ndarray
+) -> tuple[int, int, int] | None:
+    """Identify the marker family cheaply before ChArUco interpolation."""
+    dictionary_ids = [
+        cv2.aruco.DICT_4X4_50,
+        cv2.aruco.DICT_6X6_250,
+        cv2.aruco.DICT_4X4_100,
+        cv2.aruco.DICT_4X4_250,
+        cv2.aruco.DICT_4X4_1000,
+        cv2.aruco.DICT_5X5_50,
+        cv2.aruco.DICT_5X5_100,
+        cv2.aruco.DICT_5X5_250,
+        cv2.aruco.DICT_5X5_1000,
+        cv2.aruco.DICT_6X6_50,
+        cv2.aruco.DICT_6X6_100,
+        cv2.aruco.DICT_6X6_1000,
+        cv2.aruco.DICT_7X7_50,
+        cv2.aruco.DICT_7X7_100,
+        cv2.aruco.DICT_7X7_250,
+        cv2.aruco.DICT_7X7_1000,
+        cv2.aruco.DICT_ARUCO_ORIGINAL,
+    ]
+    params = cv2.aruco.DetectorParameters()
+    params.minMarkerPerimeterRate = 0.005
+    params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+    for dictionary_id in dict.fromkeys(dictionary_ids):
+        detector = cv2.aruco.ArucoDetector(
+            cv2.aruco.getPredefinedDictionary(dictionary_id), params
+        )
+        _, ids_a, _ = detector.detectMarkers(gray_a)
+        _, ids_b, _ = detector.detectMarkers(gray_b)
+        markers_a = 0 if ids_a is None else len(ids_a)
+        markers_b = 0 if ids_b is None else len(ids_b)
+        if max(markers_a, markers_b) >= 2:
+            return dictionary_id, markers_a, markers_b
+    return None
+
+
+def _pattern_detector_candidates(
+    board_type: str,
+    grid_size: tuple[int, int],
+    square_length: float,
+    marker_length: float,
+) -> list[tuple[str, object]]:
+    if board_type == "charuco":
+        return _charuco_detector_candidates(
+            grid_size, square_length, marker_length
+        )
+    if board_type == "chessboard":
+        pattern = (grid_size[0] - 1, grid_size[1] - 1)
+        patterns = [pattern]
+        if pattern[0] != pattern[1]:
+            patterns.append((pattern[1], pattern[0]))
+        return [(f"grid={cols}x{rows}", (cols, rows)) for cols, rows in patterns]
+    raise ValueError(f"Unknown board type: {board_type}")
+
+
+def _detected_corner_count(gray: np.ndarray, board_type: str, detector: object) -> int:
+    if board_type == "charuco":
+        corners, _, _, _ = detector.detectBoard(gray)
+        return 0 if corners is None else len(corners)
+    found, corners = cv2.findChessboardCorners(gray, detector, None)
+    return len(corners) if found and corners is not None else 0
+
+
+def _detection_thumbnail(frame: np.ndarray) -> np.ndarray:
+    """Downscale a phone frame for fast board-presence scoring."""
+    height, width = frame.shape[:2]
+    if width > BOARD_SCAN_MAX_WIDTH:
+        scale = BOARD_SCAN_MAX_WIDTH / width
+        frame = cv2.resize(
+            frame,
+            (BOARD_SCAN_MAX_WIDTH, max(1, round(height * scale))),
+            interpolation=cv2.INTER_AREA,
+        )
+    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+
+def _board_hint(description: str, board_type: str) -> BoardDetectionHint:
+    grid_text = description.rsplit("grid=", 1)[1]
+    cols_text, rows_text = grid_text.split("x", 1)
+    dictionary_id = None
+    if board_type == "charuco":
+        dictionary_id = int(description.split("dictionary=", 1)[1].split(",", 1)[0])
+    return BoardDetectionHint(
+        dictionary_id=dictionary_id,
+        grid_size=(int(cols_text), int(rows_text)),
+        description=description,
+    )
+
+
+def _best_shared_detector(
+    gray_a: np.ndarray,
+    gray_b: np.ndarray,
+    board_type: str,
+    candidates: Sequence[tuple[str, object]],
+) -> tuple[str, object, int, int] | None:
+    """Find the strongest board interpretation visible in either camera."""
+    best = None
+    best_score = None
+    for description, detector in candidates:
+        corners_a = _detected_corner_count(gray_a, board_type, detector)
+        corners_b = _detected_corner_count(gray_b, board_type, detector)
+        if max(corners_a, corners_b) < MIN_CALIBRATION_CORNERS:
+            continue
+        # Prefer an interpretation supported by both views, but allow a
+        # one-sided partial board to lock the known physical target. Intrinsic
+        # calibration can use that view and nearby visual-sync shifts may make
+        # it a shared stereo pose later.
+        score = (
+            min(corners_a, corners_b) >= MIN_CALIBRATION_CORNERS,
+            min(corners_a, corners_b),
+            max(corners_a, corners_b),
+            corners_a + corners_b,
+        )
+        if best_score is None or score > best_score:
+            best_score = score
+            best = (description, detector, corners_a, corners_b)
+        if board_type == "charuco":
+            maximum_corners = len(detector.getBoard().getChessboardCorners())
+        else:
+            maximum_corners = detector[0] * detector[1]
+        if max(corners_a, corners_b) == maximum_corners:
+            # A complete detection in either camera is enough to identify the
+            # physical board. No later fallback can improve that view.
+            return best
+    return best
 
 def _paired_frame_indices(
     progress_time: float,
@@ -66,8 +289,12 @@ def extract_synced_frames(
     max_frames: int = 16,
     slow_motion_factor_a: float = 1.0,
     slow_motion_factor_b: float = 1.0,
-) -> tuple[list[Path], list[Path]]:
-    """Sync two videos and extract matching frames for calibration."""
+    board_type: str = "charuco",
+    grid_size: tuple[int, int] = (11, 8),
+    square_length: float = 0.04,
+    marker_length: float = 0.03,
+) -> tuple[list[Path], list[Path], BoardDetectionHint | None]:
+    """Sync videos, scan their shared timeline, and retain board-visible pairs."""
     from golfie_cv.sync import estimate_sync_landmarks
     from golfie_cv.video import analyze_video_timing
 
@@ -94,7 +321,15 @@ def extract_synced_frames(
         nominal_fps_a = fps_a
         nominal_fps_b = fps_b
     else:
+        log_calibration_progress(
+            "Reading Camera A slow-motion frame timeline...", 10, "timing_camera_a"
+        )
         timing_a = analyze_video_timing(video_path_a)
+        log_calibration_progress(
+            "Camera A timeline ready; reading Camera B slow-motion frame timeline...",
+            12,
+            "timing_camera_b",
+        )
         timing_b = analyze_video_timing(video_path_b)
         duration_a = timing_a.playback_duration_seconds
         duration_b = timing_b.playback_duration_seconds
@@ -106,6 +341,11 @@ def extract_synced_frames(
     # Locate the same clap separately in each playback timeline. A constant
     # offset is insufficient when the files have different slow-motion scales.
     try:
+        log_calibration_progress(
+            "Locating the synchronization clap in both audio tracks...",
+            14,
+            "audio_sync",
+        )
         landmark_time_a, landmark_time_b, confidence = estimate_sync_landmarks(
             video_path_a, video_path_b
         )
@@ -129,6 +369,7 @@ def extract_synced_frames(
             f"Camera A={nominal_fps_a:.3f}fps x {slow_motion_factor_a:g}; "
             f"Camera B={nominal_fps_b:.3f}fps x {slow_motion_factor_b:g}; "
             f"overlap after clap={overlap:.3f}s."
+            , 17, "board_scan"
         )
     except ValueError:
         raise
@@ -137,7 +378,8 @@ def extract_synced_frames(
             f"Calibration audio synchronization failed: {exc}"
         ) from exc
 
-    time_step = overlap / max_frames
+    scan_frames = max(max_frames, max_frames * CALIBRATION_SCAN_MULTIPLIER)
+    time_step = overlap / scan_frames
 
     # Subdirectories within temp directory
     tmp_dir_a = video_path_a.parent / "_tmp_cal_a"
@@ -159,8 +401,24 @@ def extract_synced_frames(
     for directory in refinement_dirs.values():
         directory.mkdir(exist_ok=True)
 
-    saved = 0
-    for i in range(max_frames):
+    detector_candidates = (
+        _pattern_detector_candidates(board_type, grid_size, square_length, marker_length)
+        if board_type != "charuco"
+        else []
+    )
+    dictionary_hint: int | None = None
+    selected_detector: tuple[str, object] | None = None
+    selected_hint: BoardDetectionHint | None = None
+    usable_frames: list[tuple[int, int, float, int, int]] = []
+    usable_a = 0
+    usable_b = 0
+    usable_shared = 0
+    scan_started = time.monotonic()
+
+    # First pass: inspect a denser, evenly spaced set of timestamps. Store only
+    # frame indices, then decode the selected poses again below. This avoids
+    # retaining dozens of full-resolution phone frames in memory or on disk.
+    for i in range(scan_frames):
         # Use the midpoint of each interval to avoid the clap itself and the
         # last potentially incomplete frame in the shared physical window.
         t = (i + 0.5) * time_step
@@ -176,9 +434,89 @@ def extract_synced_frames(
         cap_a.set(cv2.CAP_PROP_POS_FRAMES, idx_a)
         ret_a, frame_a = cap_a.read()
 
-        # Decode the nearby Camera B candidates sequentially. Phone slow-motion
-        # exports can shift audio relative to video by several stored frames;
-        # these candidates let stereo geometry refine the audio landmark.
+        cap_b.set(cv2.CAP_PROP_POS_FRAMES, idx_b)
+        ret_b, frame_b = cap_b.read()
+        if not ret_a or not ret_b or frame_a is None or frame_b is None:
+            continue
+
+        gray_a = _detection_thumbnail(frame_a)
+        gray_b = _detection_thumbnail(frame_b)
+        if selected_detector is None:
+            if board_type == "charuco" and dictionary_hint is None:
+                dictionary_match = _find_charuco_dictionary(gray_a, gray_b)
+                if dictionary_match is None:
+                    if (i + 1) % 4 == 0:
+                        elapsed = time.monotonic() - scan_started
+                        log_calibration_progress(
+                            f"Board scan {i + 1}/{scan_frames} (marker search, {elapsed:.1f}s): "
+                            "no frame has two recognized board markers yet.",
+                            17 + int(11 * (i + 1) / scan_frames),
+                            "board_scan",
+                        )
+                    continue
+                dictionary_hint, markers_a, markers_b = dictionary_match
+                detector_candidates = _charuco_detector_candidates(
+                    grid_size,
+                    square_length,
+                    marker_length,
+                    dictionary_ids=[dictionary_hint],
+                )
+                log_calibration_progress(
+                    f"Marker family identified as dictionary {dictionary_hint} from "
+                    f"Camera A={markers_a}, Camera B={markers_b} markers; checking board rotation.",
+                    18,
+                    "board_scan",
+                )
+            best = _best_shared_detector(
+                gray_a, gray_b, board_type, detector_candidates
+            )
+            if best is None:
+                continue
+            description, detector, corners_a, corners_b = best
+            selected_detector = (description, detector)
+            selected_hint = _board_hint(description, board_type)
+            log_calibration_progress(
+                f"Board detector locked from a partial or complete view: {description}; "
+                f"current view "
+                f"has Camera A={corners_a}, Camera B={corners_b} corners."
+            )
+        else:
+            _, detector = selected_detector
+            corners_a = _detected_corner_count(gray_a, board_type, detector)
+            corners_b = _detected_corner_count(gray_b, board_type, detector)
+
+        good_a = corners_a >= MIN_CALIBRATION_CORNERS
+        good_b = corners_b >= MIN_CALIBRATION_CORNERS
+        usable_a += int(good_a)
+        usable_b += int(good_b)
+        usable_shared += int(good_a and good_b)
+        if good_a or good_b:
+            usable_frames.append((idx_a, idx_b, t, corners_a, corners_b))
+
+        if (i + 1) % 4 == 0 or i + 1 == scan_frames:
+            detector_state = "locked" if selected_detector is not None else "searching"
+            elapsed = time.monotonic() - scan_started
+            log_calibration_progress(
+                f"Board scan {i + 1}/{scan_frames} ({detector_state}, {elapsed:.1f}s): "
+                f"Camera A usable={usable_a}, Camera B usable={usable_b}, "
+                f"shared={usable_shared}; {MIN_CALIBRATION_CORNERS}+ corners accepted.",
+                17 + int(11 * (i + 1) / scan_frames),
+                "board_scan",
+            )
+
+    chosen_frames = _evenly_spaced_items(usable_frames, max_frames)
+    log_calibration_progress(
+        f"Board scan found Camera A={usable_a}, Camera B={usable_b}, "
+        f"shared={usable_shared} usable timestamps across {scan_frames} checks; "
+        f"selected {len(chosen_frames)} evenly spaced pairs."
+        , 28, "saving_frames"
+    )
+
+    # Second pass: save the chosen base frames and all nearby Camera B visual
+    # sync candidates under matching sequential names.
+    for idx_a, idx_b, _, _, _ in chosen_frames:
+        cap_a.set(cv2.CAP_PROP_POS_FRAMES, idx_a)
+        ret_a, frame_a = cap_a.read()
         candidate_frames: dict[int, np.ndarray] = {}
         first_shift = min(refinement_shifts)
         last_shift = max(refinement_shifts)
@@ -190,28 +528,34 @@ def extract_synced_frames(
             if shifted_index in refinement_shifts:
                 candidate_frames[shifted_index] = candidate
         frame_b = candidate_frames.get(0)
-        ret_b = frame_b is not None
+        if not ret_a or frame_a is None or frame_b is None:
+            continue
 
-        if ret_a and ret_b and frame_a is not None and frame_b is not None:
-            path_a = tmp_dir_a / f"frame_{saved:04d}.png"
-            path_b = tmp_dir_b / f"frame_{saved:04d}.png"
-            cv2.imwrite(str(path_a), frame_a)
-            cv2.imwrite(str(path_b), frame_b)
-            paths_a.append(path_a)
-            paths_b.append(path_b)
-            for shift, directory in refinement_dirs.items():
-                candidate = candidate_frames.get(shift)
-                if candidate is not None:
-                    cv2.imwrite(
-                        str(directory / f"frame_{saved:04d}.jpg"),
-                        candidate,
-                        [cv2.IMWRITE_JPEG_QUALITY, 97],
-                    )
-            saved += 1
+        saved = len(paths_a)
+        path_a = tmp_dir_a / f"frame_{saved:04d}.png"
+        path_b = tmp_dir_b / f"frame_{saved:04d}.png"
+        cv2.imwrite(str(path_a), frame_a)
+        cv2.imwrite(str(path_b), frame_b)
+        paths_a.append(path_a)
+        paths_b.append(path_b)
+        for shift, directory in refinement_dirs.items():
+            candidate = candidate_frames.get(shift)
+            if candidate is not None:
+                cv2.imwrite(
+                    str(directory / f"frame_{saved:04d}.jpg"),
+                    candidate,
+                    [cv2.IMWRITE_JPEG_QUALITY, 97],
+                )
+
+    log_calibration_progress(
+        f"Saved {len(paths_a)} selected frame pairs and nearby visual-sync candidates.",
+        29,
+        "saving_frames",
+    )
 
     cap_a.release()
     cap_b.release()
-    return paths_a, paths_b
+    return paths_a, paths_b, selected_hint
 
 
 @router.get("/active", response_model=CalibrationResult)
@@ -298,6 +642,7 @@ def upload_and_calibrate(
     measured_baseline: float | None = Form(default=None),
     slow_motion_factor_a: float = Form(default=1.0),
     slow_motion_factor_b: float = Form(default=1.0),
+    _calibration_guard: None = Depends(_exclusive_calibration_run),
 ) -> CalibrationResult:
     # This endpoint performs long, blocking OpenCV/FFmpeg work. Defining it as
     # a synchronous route lets FastAPI run it in its worker thread pool so the
@@ -343,11 +688,15 @@ def upload_and_calibrate(
             "Synchronizing videos and extracting calibration frames...", 9, "extracting"
         )
         try:
-            paths_a, paths_b = extract_synced_frames(
+            paths_a, paths_b, board_hint = extract_synced_frames(
                 path_a,
                 path_b,
                 slow_motion_factor_a=slow_motion_factor_a,
                 slow_motion_factor_b=slow_motion_factor_b,
+                board_type=board_type,
+                grid_size=(grid_cols, grid_rows),
+                square_length=square_size,
+                marker_length=marker_size,
             )
             log_calibration_progress(
                 f"Extracted {len(paths_a)} synchronized frame pairs.", 30, "frames_ready"
@@ -360,10 +709,18 @@ def upload_and_calibrate(
             )
 
         if not paths_a or not paths_b:
-            log_calibration_progress("Could not extract aligned frames from the calibration videos.")
+            log_calibration_progress(
+                "Calibration failed: no frames contained at least four detectable board corners "
+                "in either camera after the clap.",
+                30,
+                "failed",
+            )
             raise HTTPException(
                 status_code=400,
-                detail="Could not extract aligned frames from the calibration videos.",
+                detail=(
+                    "No usable board frames were found after the clap. Four or more detected "
+                    "corners in either camera are sufficient; the complete board is not required."
+                ),
             )
 
         # The two intrinsic solves are independent and OpenCV releases the GIL,
@@ -372,13 +729,35 @@ def upload_and_calibrate(
             "Calibrating both camera lens models in parallel...", 32, "intrinsics"
         )
 
+        intrinsic_progress = {"Camera A": 0.0, "Camera B": 0.0}
+        intrinsic_progress_lock = threading.Lock()
+
+        def report_intrinsic_progress(label: str, fraction: float, message: str):
+            with intrinsic_progress_lock:
+                intrinsic_progress[label] = fraction
+                combined = sum(intrinsic_progress.values()) / len(intrinsic_progress)
+                progress = 32 + int(25 * combined)
+            log_calibration_progress(
+                f"{label}: {message}", progress, "intrinsics"
+            )
+
         def solve_intrinsics(label: str, paths: list[Path]):
+            hinted_grid_size = board_hint.grid_size if board_hint else (grid_cols, grid_rows)
+            hinted_dictionary = (
+                board_hint.dictionary_id
+                if board_hint and board_hint.dictionary_id is not None
+                else cv2.aruco.DICT_6X6_250
+            )
             result = calibrate_intrinsics(
                 paths,
                 board_type=board_type,
-                grid_size=(grid_cols, grid_rows),
+                grid_size=hinted_grid_size,
                 square_length=square_size,
                 marker_length=marker_size,
+                dictionary_id=hinted_dictionary,
+                progress_callback=lambda fraction, message: report_intrinsic_progress(
+                    label, fraction, message
+                ),
             )
             return label, result
 
@@ -427,21 +806,30 @@ def upload_and_calibrate(
                     candidate_paths_b = sorted(candidate_dir.glob("frame_*.jpg"))
                 if len(candidate_paths_b) != len(paths_a):
                     return shift, None
+                hinted_grid_size = board_hint.grid_size if board_hint else (grid_cols, grid_rows)
+                hinted_dictionary = (
+                    board_hint.dictionary_id
+                    if board_hint and board_hint.dictionary_id is not None
+                    else cv2.aruco.DICT_6X6_250
+                )
                 return shift, calibrate_stereo(
                     intrinsics_a,
                     intrinsics_b,
                     paths_a,
                     candidate_paths_b,
                     board_type=board_type,
-                    grid_size=(grid_cols, grid_rows),
+                    grid_size=hinted_grid_size,
                     square_length=square_size,
                     marker_length=marker_size,
+                    dictionary_id=hinted_dictionary,
                 )
 
             # Audio is normally within four stored frames. Include the base
             # alignment in this same concurrent batch instead of first paying
             # for a separate serial stereo solve.
             shift_batches = [(0, -4, -2, 2, 4), (-12, -10, -8, -6, 6, 8, 10, 12)]
+            total_shift_candidates = sum(len(batch) for batch in shift_batches)
+            evaluated_shift_candidates = 0
             for batch in shift_batches:
                 with ThreadPoolExecutor(max_workers=min(5, len(batch))) as executor:
                     futures = {
@@ -450,15 +838,27 @@ def upload_and_calibrate(
                     }
                     for future in as_completed(futures):
                         shift = futures[future]
+                        evaluated_shift_candidates += 1
+                        candidate_progress = 68 + int(
+                            20 * evaluated_shift_candidates / total_shift_candidates
+                        )
                         try:
                             _, candidate_result = future.result()
                         except Exception as candidate_exc:
                             log_calibration_progress(
                                 f"Visual sync candidate {shift:+d} frames rejected: "
-                                f"{candidate_exc}"
+                                f"{candidate_exc}",
+                                candidate_progress,
+                                "refining_sync",
                             )
                             continue
                         if candidate_result is None:
+                            log_calibration_progress(
+                                f"Visual sync candidate {shift:+d} frames skipped: "
+                                "not every selected pose had a nearby decoded frame.",
+                                candidate_progress,
+                                "refining_sync",
+                            )
                             continue
                         candidates.append((shift, candidate_result))
                         candidate_median = candidate_result.epipolar_error_median_px
@@ -476,7 +876,9 @@ def upload_and_calibrate(
                         log_calibration_progress(
                             f"Visual sync candidate {shift:+d} frames: "
                             f"RMS={candidate_result.reprojection_error_px:.3f}px, "
-                            f"median={median_text}, inliers={inlier_text}."
+                            f"median={median_text}, inliers={inlier_text}.",
+                            candidate_progress,
+                            "refining_sync",
                         )
                 if any(result.is_valid for _, result in candidates):
                     break

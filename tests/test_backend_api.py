@@ -379,7 +379,10 @@ def test_calibration_endpoints(client, tmp_path, monkeypatch):
 
     # Mock extract_synced_frames to return dummy paths
     dummy_paths = [Path("dummy_a.png")]
-    monkeypatch.setattr("golfie_api.routers.calibration.extract_synced_frames", lambda *args, **kwargs: (dummy_paths, dummy_paths))
+    monkeypatch.setattr(
+        "golfie_api.routers.calibration.extract_synced_frames",
+        lambda *args, **kwargs: (dummy_paths, dummy_paths, None),
+    )
 
     # Create dummy video files
     dummy_clip = tmp_path / "dummy.mp4"
@@ -480,3 +483,100 @@ def test_slow_motion_calibration_pairing_uses_common_physical_time():
     assert idx_b == 390
     assert (idx_a - 300) / (30.0 * 4.0) == pytest.approx(1.0)
     assert (idx_b - 150) / (30.0 * 8.0) == pytest.approx(1.0)
+
+
+def test_calibration_pose_selection_keeps_full_timeline_coverage():
+    from golfie_api.routers.calibration import _evenly_spaced_items
+
+    selected = _evenly_spaced_items(list(range(64)), 16)
+
+    assert len(selected) == 16
+    assert selected[0] == 0
+    assert selected[-1] == 63
+    assert len(set(selected)) == 16
+    assert max(b - a for a, b in zip(selected, selected[1:])) <= 5
+
+
+def test_calibration_detector_uses_strongest_shared_board_view(monkeypatch):
+    from golfie_api.routers import calibration as calibration_router
+
+    class FakeDetector:
+        def __init__(self, name):
+            self.name = name
+
+        def getBoard(self):
+            return self
+
+        def getChessboardCorners(self):
+            return list(range(12))
+
+    counts = {
+        ("weak", "a"): 6,
+        ("weak", "b"): 6,
+        ("strong", "a"): 12,
+        ("strong", "b"): 10,
+        ("one_sided", "a"): 20,
+        ("one_sided", "b"): 2,
+    }
+
+    monkeypatch.setattr(
+        calibration_router,
+        "_detected_corner_count",
+        lambda gray, _board_type, detector: counts[(detector.name, gray)],
+    )
+
+    detectors = [FakeDetector(name) for name in ("weak", "strong", "one_sided")]
+    best = calibration_router._best_shared_detector(
+        "a",
+        "b",
+        "charuco",
+        [(detector.name, detector) for detector in detectors],
+    )
+
+    assert best == ("strong", detectors[1], 12, 10)
+
+
+def test_calibration_detector_accepts_partial_one_camera_view(monkeypatch):
+    from golfie_api.routers import calibration as calibration_router
+
+    class PartialDetector:
+        def getBoard(self):
+            return self
+
+        def getChessboardCorners(self):
+            return list(range(12))
+
+    detector = PartialDetector()
+    monkeypatch.setattr(
+        calibration_router,
+        "_detected_corner_count",
+        lambda gray, _board_type, _detector: 5 if gray == "a" else 1,
+    )
+
+    assert calibration_router._best_shared_detector(
+        "a", "b", "charuco", [("dictionary=0, grid=4x5", detector)]
+    ) == ("dictionary=0, grid=4x5", detector, 5, 1)
+
+
+def test_board_hint_preserves_detected_dictionary_and_rotation():
+    from golfie_api.routers.calibration import _board_hint
+
+    hint = _board_hint("dictionary=0, grid=4x5", "charuco")
+
+    assert hint.dictionary_id == 0
+    assert hint.grid_size == (4, 5)
+
+
+def test_duplicate_calibration_run_is_rejected():
+    from fastapi import HTTPException
+    from golfie_api.routers.calibration import _exclusive_calibration_run
+
+    first = _exclusive_calibration_run()
+    next(first)
+    try:
+        second = _exclusive_calibration_run()
+        with pytest.raises(HTTPException) as exc_info:
+            next(second)
+        assert exc_info.value.status_code == 409
+    finally:
+        first.close()

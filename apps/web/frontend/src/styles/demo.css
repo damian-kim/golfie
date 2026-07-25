@@ -80,6 +80,9 @@
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
 }
 
+.demo-parameters { position: absolute; z-index: 105; right: 18px; top: 116px; width: 292px; padding: 16px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #fff; background: rgba(10,16,13,.9); backdrop-filter: blur(14px); }
+.demo-parameters header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 14px; }.demo-parameters header div { display: flex; flex-direction: column; }.demo-parameters header small { margin-top: 3px; color: rgba(255,255,255,.48); font-size: 9px; }.demo-parameters header button { border: 0; color: rgba(255,255,255,.6); background: none; cursor: pointer; }.demo-parameters > div { display: grid; gap: 10px; }.demo-parameters label span { display: flex; justify-content: space-between; font-size: 10px; }.demo-parameters label b { color: #8fc9a1; font-family: ui-monospace,monospace; font-weight: 500; }.demo-parameters input { width: 100%; accent-color: #4cc273; }.demo-parameters > .primary-button { width: 100%; margin-top: 14px; padding: 9px; }
+
 .demo-error-banner {
   border: 1px solid var(--color-danger);
 }
@@ -107,4 +110,5 @@
   .demo-loading {
     top: 154px;
   }
+  .demo-parameters { position: relative; z-index: 3; top: auto; right: auto; width: calc(100% - 24px); margin: 150px 12px -135px; }
 }
