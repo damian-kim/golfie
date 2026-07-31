@@ -1,6 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { Html, useTexture } from "@react-three/drei";
-import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { metersToYards } from "../lib/units";
 import { rangeGroundHeight, type SceneBounds } from "./sceneMath";
@@ -180,7 +179,7 @@ function CourseForest({ length, width }: { length: number; width: number }) {
         const heightWave = 1 + Math.sin(x * 0.067 + side * 0.8) * 0.16 + Math.sin(x * 0.19) * 0.08;
         for (let depth = 0; depth < 4; depth += 1) {
           const z = side * (edge + depth * 5.4 + random() * 2.8);
-          const rowHeight = [0.82, 0.98, 1.12, 1.02][depth];
+          const rowHeight = [0.9, 1.06, 1.2, 1.1][depth];
           pushTree(
             x + (random() - 0.5) * 3.2,
             z,
@@ -194,7 +193,7 @@ function CourseForest({ length, width }: { length: number; width: number }) {
           -3,
         );
         if (random() < 0.2) {
-          pushTree(x + (random() - 0.5) * 2.5, side * (edge + 16 + random() * 7), 1.38 + random() * 0.24);
+          pushTree(x + (random() - 0.5) * 2.5, side * (edge + 16 + random() * 7), 1.46 + random() * 0.24);
         }
       }
     }
@@ -202,7 +201,7 @@ function CourseForest({ length, width }: { length: number; width: number }) {
     for (let z = -width * 0.58; z <= width * 0.58; z += 3.6) {
       const heightWave = 1 + Math.sin(z * 0.09) * 0.17 + Math.sin(z * 0.21 + 1.2) * 0.07;
       for (let depth = 0; depth < 4; depth += 1) {
-        const rowHeight = [0.84, 0.98, 1.14, 1.03][depth];
+        const rowHeight = [1.02, 1.18, 1.36, 1.24][depth];
         pushTree(
           length + 7 + depth * 5.4 + random() * 2.5,
           z + (random() - 0.5) * 3.2,
@@ -210,7 +209,7 @@ function CourseForest({ length, width }: { length: number; width: number }) {
         );
       }
       pushTree(length + 4 + random() * 2, z, 0.58 + random() * 0.12, -3);
-      if (random() < 0.22) pushTree(length + 24 + random() * 5, z, 1.4 + random() * 0.22);
+      if (random() < 0.22) pushTree(length + 24 + random() * 5, z, 1.55 + random() * 0.22);
     }
 
     for (let z = -width * 0.56; z <= width * 0.56; z += 3.6) {
@@ -263,7 +262,6 @@ function TargetFlag({ yards, x, z }: { yards: number; x: number; z: number }) {
 }
 
 export function RangeEnvironment({ bounds }: RangeEnvironmentProps) {
-  const { gl } = useThree();
   const length = Math.max(330, bounds.maxDownrangeM * 1.32 + 35);
   const width = Math.max(145, bounds.maxLateralAbsM * 6 + 95);
   const terrainStart = -700;
@@ -277,15 +275,12 @@ export function RangeEnvironment({ bounds }: RangeEnvironmentProps) {
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
       texture.repeat.set(repeatX, repeatY);
       texture.colorSpace = THREE.SRGBColorSpace;
-      texture.minFilter = THREE.LinearMipmapLinearFilter;
-      texture.magFilter = THREE.LinearFilter;
-      texture.generateMipmaps = true;
-      texture.anisotropy = Math.min(16, gl.capabilities.getMaxAnisotropy());
+      texture.anisotropy = 8;
       texture.needsUpdate = true;
       return texture;
     };
     return { rough: prepare(96, 82), fairway: prepare(12, 3.6), tee: prepare(2.4, 1.5) };
-  }, [gl, grassSource]);
+  }, [grassSource]);
   const ground = useMemo(
     () => makeGround(terrainLength, terrainWidth, terrainStart),
     [terrainLength, terrainStart, terrainWidth],
@@ -317,7 +312,6 @@ export function RangeEnvironment({ bounds }: RangeEnvironmentProps) {
         dispose={null}
       >
         <meshStandardMaterial
-          dispose={null}
           map={materials.rough}
           bumpMap={materials.rough}
           bumpScale={0.075}
@@ -328,12 +322,12 @@ export function RangeEnvironment({ bounds }: RangeEnvironmentProps) {
         />
       </mesh>
       <mesh name="range-fairway" geometry={fairway} receiveShadow dispose={null}>
-        <meshStandardMaterial dispose={null} map={materials.fairway} bumpMap={materials.fairway} bumpScale={0.045} color="#d3e2c8" roughness={0.91} />
+        <meshStandardMaterial map={materials.fairway} bumpMap={materials.fairway} bumpScale={0.045} color="#d3e2c8" roughness={0.91} />
       </mesh>
 
       <mesh position={[-1.5, 0.045, 0]} receiveShadow>
         <boxGeometry args={[9.5, 0.09, 9]} />
-        <meshStandardMaterial dispose={null} map={materials.tee} bumpMap={materials.tee} bumpScale={0.035} color="#dce8d3" roughness={0.9} />
+        <meshStandardMaterial map={materials.tee} bumpMap={materials.tee} bumpScale={0.035} color="#dce8d3" roughness={0.9} />
       </mesh>
       <mesh position={[-1, 0.14, -2.7]} castShadow><sphereGeometry args={[0.12, 20, 14]} /><meshStandardMaterial color="#f3f0e6" /></mesh>
       <mesh position={[-1, 0.14, 2.7]} castShadow><sphereGeometry args={[0.12, 20, 14]} /><meshStandardMaterial color="#f3f0e6" /></mesh>

@@ -4,6 +4,8 @@ export interface SceneBounds {
   maxDownrangeM: number;
   maxHeightM: number;
   maxLateralAbsM: number;
+  centerDownrangeM: number;
+  centerLateralM: number;
 }
 
 export function rangeGroundHeight(x: number, z: number): number {
@@ -20,23 +22,36 @@ export function computeSceneBounds(pointSets: ScenePoint[][]): SceneBounds {
   let maxDownrangeM = 1;
   let maxHeightM = 1;
   let maxLateralAbsM = 1;
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
   for (const points of pointSets) {
     for (const p of points) {
       maxDownrangeM = Math.max(maxDownrangeM, p.x);
       maxHeightM = Math.max(maxHeightM, p.y);
       maxLateralAbsM = Math.max(maxLateralAbsM, Math.abs(p.z));
+      minX = Math.min(minX, p.x);
+      maxX = Math.max(maxX, p.x);
+      minZ = Math.min(minZ, p.z);
+      maxZ = Math.max(maxZ, p.z);
     }
   }
-  return { maxDownrangeM, maxHeightM, maxLateralAbsM };
+  const centerDownrangeM = Number.isFinite(minX) ? (minX + maxX) / 2 : 18;
+  const centerLateralM = Number.isFinite(minZ) ? (minZ + maxZ) / 2 : 0;
+  return { maxDownrangeM, maxHeightM, maxLateralAbsM, centerDownrangeM, centerLateralM };
 }
 
 /** Camera position + orbit target scaled to the shot length, so a 10m
  * putt-length demo and a 250m drive both frame reasonably. */
 export function fitCameraToBounds(bounds: SceneBounds) {
-  const range = bounds.maxDownrangeM;
+  // Keep short/custom shots framed against the same full driving-range canvas
+  // as the real reference drive instead of tightening the camera around them.
+  const range = Math.max(bounds.maxDownrangeM, 205);
+  const presentationCenter = Math.max(bounds.centerDownrangeM, range * 0.46);
   return {
     position: [-10, 2.8, 12] as [number, number, number],
-    target: [Math.min(Math.max(range * 0.16, 18), 34), 1.35, 0] as [number, number, number],
+    target: [Math.min(Math.max(presentationCenter, range * 0.32), range * 0.55), 1.35, bounds.centerLateralM] as [number, number, number],
   };
 }
 
